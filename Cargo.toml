@@ -1,0 +1,10 @@
+[workspace]
+
+members = [
+    "macro",
+    "testing",
+]
+
+[patch.crates-io]
+fnsql = { path = "macro" }
+testing = { path = "testing" }
