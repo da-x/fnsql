@@ -27,36 +27,54 @@ struct Pet {
 }
 
 fn main() -> rusqlite::Result<()> {
-    let conn = rusqlite::Connection::open_in_memory()?;
+    let mut conn = rusqlite::Connection::open_in_memory()?;
 
-    conn.execute_create_table_pet()?;
-    let me = Pet {
-        _id: 0,
-        name: "Max".to_string(),
-        data: None,
-    };
-    conn.execute_insert_new_pet(&me.name, &me.data)?;
-    let mut stmt = conn.prepare_get_pet_id_data()?;
-    let pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
-        Ok::<_, rusqlite::Error>(Pet {
-            _id,
-            data,
+    {
+        conn.execute_create_table_pet()?;
+        let me = Pet {
+            _id: 0,
             name: "Max".to_string(),
-        })
-    })?;
+            data: None,
+        };
+        conn.execute_insert_new_pet(&me.name, &me.data)?;
+        let mut stmt = conn.prepare_get_pet_id_data()?;
+        let pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+            Ok::<_, rusqlite::Error>(Pet {
+                _id,
+                data,
+                name: "Max".to_string(),
+            })
+        })?;
 
-    for pet in pet_iter {
-        println!("Found pet {:?}", pet.unwrap());
+        for pet in pet_iter {
+            println!("Found pet {:?}", pet.unwrap());
+        }
+
+        let mut stmt = conn.prepare_cached_get_pet_id_data()?;
+        let _pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+            Ok::<_, rusqlite::Error>(Pet {
+                _id,
+                data,
+                name: "Max".to_string(),
+            })
+        })?;
     }
 
-    let mut stmt = conn.prepare_cached_get_pet_id_data()?;
-    let _pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
-        Ok::<_, rusqlite::Error>(Pet {
-            _id,
-            data,
-            name: "Max".to_string(),
-        })
-    })?;
+
+    let tx = conn.transaction()?;
+
+    {
+        let mut stmt = tx.prepare_cached_get_pet_id_data()?;
+        let _pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+            Ok::<_, rusqlite::Error>(Pet {
+                _id,
+                data,
+                name: "Max".to_string(),
+            })
+        })?;
+    }
+
+    tx.commit()?;
 
     Ok(())
 }
