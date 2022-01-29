@@ -43,7 +43,7 @@ fn main() -> rusqlite::Result<()> {
         };
         conn.execute_insert_new_pet(&me.name, &me.data)?;
         let mut stmt = conn.prepare_get_pet_id_data()?;
-        let pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+        let pet_iter = stmt.query_map(&Some("Max".to_string()), |_id, data| {
             Ok::<_, rusqlite::Error>(Pet {
                 _id,
                 data,
@@ -55,8 +55,19 @@ fn main() -> rusqlite::Result<()> {
             println!("Found pet {:?}", pet.unwrap());
         }
 
+        for pet in stmt.query(&Some("Max".to_string()))? {
+            let pet = pet?;
+            println!("Found pet {:?}", pet);
+        }
+
+        {
+            let mut rows = stmt.query(&Some("Max".to_string()))?;
+            while let Some(Ok(pet)) = rows.next() {
+                println!("Found pet {:?}", pet);
+            }
+        }
         let mut stmt = conn.prepare_cached_get_pet_id_data()?;
-        let _pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+        let _pet_iter = stmt.query_map(&Some("Max".to_string()), |_id, data| {
             Ok::<_, rusqlite::Error>(Pet {
                 _id,
                 data,
@@ -71,7 +82,7 @@ fn main() -> rusqlite::Result<()> {
 
     {
         let mut stmt = tx.prepare_cached_get_pet_id_data()?;
-        let _pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+        let _pet_iter = stmt.query_map(&Some("Max".to_string()), |_id, data| {
             Ok::<_, rusqlite::Error>(Pet {
                 _id,
                 data,

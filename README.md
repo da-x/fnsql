@@ -72,7 +72,7 @@ conn.execute_insert_new_pet(&me.name, &me.data)?;
 let mut stmt = conn.prepare_get_pet_id_data()?;
 // let mut stmt = conn.prepare("SELECT id, name, data FROM pet")?;
 
-let pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+let pet_iter = stmt.query_map(&Some("Max".to_string()), |_id, data| {
     Ok::<_, rusqlite::Error>(Pet {
         _id,
         data,

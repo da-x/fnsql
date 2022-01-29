@@ -61,7 +61,7 @@
 //! let mut stmt = conn.prepare_get_pet_id_data()?;
 //! // let mut stmt = conn.prepare("SELECT id, name, data FROM pet")?;
 //!
-//! let pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+//! let pet_iter = stmt.query_map(&Some("Max".to_string()), |_id, data| {
 //!     Ok::<_, rusqlite::Error>(Pet {
 //!         _id,
 //!         data,
@@ -251,7 +251,12 @@ impl Query {
             })
             .collect();
 
-        quote! { Ok(map(#(#list),*)) }
+        quote! { #(#list),* }
+    }
+
+    fn outputs_mapped_row_closure(&self) -> Tokens {
+        let list = self.outputs_row_closure();
+        quote! { Ok(map(#list)) }
     }
 
     fn params_arbitrary(&self) -> (Tokens, Tokens) {
@@ -298,7 +303,10 @@ impl Query {
         let StatementType = self.prepend_name("Statement_");
         #[allow(non_snake_case)]
         let CachedStatementType = self.prepend_name("CachedStatement_");
-        let rows_struct_name = self.prepend_name("Rows_");
+        #[allow(non_snake_case)]
+        let MappedRows = self.prepend_name("MappedRows_");
+        #[allow(non_snake_case)]
+        let Rows = self.prepend_name("Rows_");
         let prepare_name = self.prepend_name("prepare_");
         let prepare_cached_name = self.prepend_name("prepare_cached_");
         let execute_name = self.prepend_name("execute_");
@@ -306,6 +314,7 @@ impl Query {
         let outputs_declr = self.outputs_declr();
         let (params_arbit_prep, params_arbit) = self.params_arbitrary();
         let row_closure = self.outputs_row_closure();
+        let mapped_row_closure = self.outputs_mapped_row_closure();
         let params_query = self.params_query();
         let query = &self.query;
         let name = syn::LitStr::new(&self.name.to_string(), self.name.span());
@@ -376,12 +385,12 @@ impl Query {
             }
 
             #[allow(non_camel_case_types)]
-            pub struct #rows_struct_name<'stmt, F> {
+            pub struct #MappedRows<'stmt, F> {
                 rows: rusqlite::Rows<'stmt>,
                 map: F,
             }
 
-            impl<'stmt, T, F> #rows_struct_name<'stmt, F>
+            impl<'stmt, T, F> #MappedRows<'stmt, F>
             where
                 F: FnMut(#outputs_declr) -> T
             {
@@ -390,7 +399,7 @@ impl Query {
                 }
             }
 
-            impl<'stmt, T, F> Iterator for #rows_struct_name<'stmt, F>
+            impl<'stmt, T, F> Iterator for #MappedRows<'stmt, F>
             where
                 F: FnMut(#outputs_declr) -> T
             {
@@ -403,7 +412,33 @@ impl Query {
                         .transpose()
                         .map(|row_result| {
                             row_result.and_then(|row| {
-                                #row_closure
+                                #mapped_row_closure
+                            })
+                        })
+                }
+            }
+
+            #[allow(non_camel_case_types)]
+            pub struct #Rows<'stmt> {
+                rows: rusqlite::Rows<'stmt>,
+            }
+
+            impl<'stmt> #Rows<'stmt> {
+                pub(crate) fn new(rows: rusqlite::Rows<'stmt>) -> Self {
+                    Self { rows }
+                }
+            }
+
+            impl<'stmt> Iterator for #Rows<'stmt> {
+                type Item = rusqlite::Result<(#outputs_declr)>;
+
+                fn next(&mut self) -> Option<Self::Item> {
+                    self.rows
+                        .next()
+                        .transpose()
+                        .map(|row_result| {
+                            row_result.and_then(|row| {
+                                Ok((#row_closure))
                             })
                         })
                 }
@@ -413,12 +448,17 @@ impl Query {
             struct #StatementType<'a>(pub rusqlite::Statement<'a>);
 
             impl<'a> #StatementType<'a> {
-                fn query<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#rows_struct_name<'_, F>>
+                fn query_map<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#MappedRows<'_, F>>
                 where
                     F: FnMut(#outputs_declr) -> T,
                 {
                     let rows = self.0.query(#params_query)?;
-                    Ok(#rows_struct_name::new(rows, f))
+                    Ok(#MappedRows::new(rows, f))
+                }
+
+                fn query(&mut self #params_declr) -> rusqlite::Result<#Rows<'_>> {
+                    let rows = self.0.query(#params_query)?;
+                    Ok(#Rows::new(rows))
                 }
             }
 
@@ -426,12 +466,17 @@ impl Query {
             struct #CachedStatementType<'a>(pub rusqlite::CachedStatement<'a>);
 
             impl<'a> #CachedStatementType<'a> {
-                fn query<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#rows_struct_name<'_, F>>
+                fn query_map<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#MappedRows<'_, F>>
                 where
                     F: FnMut(#outputs_declr) -> T,
                 {
                     let rows = self.0.query(#params_query)?;
-                    Ok(#rows_struct_name::new(rows, f))
+                    Ok(#MappedRows::new(rows, f))
+                }
+
+                fn query(&mut self #params_declr) -> rusqlite::Result<#Rows<'_>> {
+                    let rows = self.0.query(#params_query)?;
+                    Ok(#Rows::new(rows))
                 }
             }
 
