@@ -1,0 +1,43 @@
+on: push
+
+name: CI
+
+jobs:
+  ci:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - 1.58.0  # MSRV
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Check docs
+        run: |
+          ./scripts/update-docs
+          if [[ $(git status --porcelain | wc -l) != 0 ]] ; then
+              echo "Nede to run ./scripts/update-docs."
+              exit -1
+          fi
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+          components: rustfmt, clippy
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check

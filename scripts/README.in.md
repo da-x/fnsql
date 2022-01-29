@@ -1,7 +1,7 @@
-# fnsql &emsp; [![Build Status]][travis] [![Latest Version]][crates.io] [![Docs badge]][Docs link] [![License badge]][License link]
+# fnsql &emsp; [![Build Status]][actions] [![Latest Version]][crates.io] [![Docs badge]][Docs link] [![License badge]][License link]
 
-[Build Status]: https://api.travis-ci.org/da-x/fnsql.svg?branch=master
-[travis]: https://travis-ci.org/da-x/fnsql
+[Build Status]: https://github.com/da-x/fnsql/actions/workflows/test.yml/badge.svg
+[actions]: https://github.com/da-x/fnsql/actions
 [Latest Version]: https://img.shields.io/crates/v/fnsql.svg
 [crates.io]: https://crates.io/crates/fnsql
 [License badge]: https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg

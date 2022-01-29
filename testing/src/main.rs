@@ -60,7 +60,6 @@ fn main() -> rusqlite::Result<()> {
         })?;
     }
 
-
     let tx = conn.transaction()?;
 
     {
