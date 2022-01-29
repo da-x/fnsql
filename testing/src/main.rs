@@ -49,5 +49,14 @@ fn main() -> rusqlite::Result<()> {
         println!("Found pet {:?}", pet.unwrap());
     }
 
+    let mut stmt = conn.prepare_cached_get_pet_id_data()?;
+    let _pet_iter = stmt.query(&Some("Max".to_string()), |_id, data| {
+        Ok::<_, rusqlite::Error>(Pet {
+            _id,
+            data,
+            name: "Max".to_string(),
+        })
+    })?;
+
     Ok(())
 }

@@ -167,8 +167,11 @@ impl Query {
         let testsetup_name = self.prepend_name("testsetup_");
         #[allow(non_snake_case)]
         let StatementType = self.prepend_name("Statement_");
+        #[allow(non_snake_case)]
+        let CachedStatementType = self.prepend_name("CachedStatement_");
         let rows_struct_name = self.prepend_name("Rows_");
         let prepare_name = self.prepend_name("prepare_");
+        let prepare_cached_name = self.prepend_name("prepare_cached_");
         let execute_name = self.prepend_name("execute_");
         let params_declr = self.params_declr();
         let outputs_declr = self.outputs_declr();
@@ -224,12 +227,17 @@ impl Query {
             #[allow(non_camel_case_types)]
             trait #conn_trait_name {
                 fn #prepare_name(&self) -> rusqlite::Result<#StatementType<'_>>;
+                fn #prepare_cached_name(&self) -> rusqlite::Result<#CachedStatementType<'_>>;
                 fn #execute_name(&self #params_declr) -> rusqlite::Result<usize>;
             }
 
             impl #conn_trait_name for rusqlite::Connection {
                 fn #prepare_name(&self) -> rusqlite::Result<#StatementType<'_>> {
                     self.prepare(#query).map(#StatementType)
+                }
+
+                fn #prepare_cached_name(&self) -> rusqlite::Result<#CachedStatementType<'_>> {
+                    self.prepare_cached(#query).map(#CachedStatementType)
                 }
 
                 fn #execute_name(&self #params_declr) -> rusqlite::Result<usize> {
@@ -275,6 +283,19 @@ impl Query {
             struct #StatementType<'a>(pub rusqlite::Statement<'a>);
 
             impl<'a> #StatementType<'a> {
+                fn query<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#rows_struct_name<'_, F>>
+                where
+                    F: FnMut(#outputs_declr) -> T,
+                {
+                    let rows = self.0.query(#params_query)?;
+                    Ok(#rows_struct_name::new(rows, f))
+                }
+            }
+
+            #[allow(non_camel_case_types)]
+            struct #CachedStatementType<'a>(pub rusqlite::CachedStatement<'a>);
+
+            impl<'a> #CachedStatementType<'a> {
                 fn query<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#rows_struct_name<'_, F>>
                 where
                     F: FnMut(#outputs_declr) -> T,
