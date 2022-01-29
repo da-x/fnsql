@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+
+main_doc = []
+for line in open("macro/src/lib.rs").readlines():
+    line = line[:-1]
+    if line.startswith("//!"):
+        if line.strip() == "":
+            line = ""
+        main_doc.append(line[4:])
+    else:
+        break
+main_doc = '\n'.join(main_doc)
+
+readme_in_template = open("./scripts/README.in.md").read()
+readme_in_template = readme_in_template.replace("@@MAIN_DOC@@", main_doc)
+open("README.md", "w").write(readme_in_template)
+open("macro/crates.io.md", "w").write(main_doc)

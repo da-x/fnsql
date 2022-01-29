@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 fnsql = "*"
-rusqlite = "*"
-mashup = "*"
+rusqlite = "0.26"
+
+[dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }
