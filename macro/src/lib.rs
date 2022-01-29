@@ -116,13 +116,13 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    token, Token,
+    token, Ident, Token,
 };
 
 struct Queries {
@@ -145,7 +145,7 @@ enum Kind {
 }
 
 struct Query {
-    name: syn::Ident,
+    name: Ident,
     params: Vec<Param>,
     outputs: Vec<Output>,
     query: syn::LitStr,
@@ -226,8 +226,8 @@ impl Parse for Query {
 }
 
 impl Query {
-    fn prepend_name(&self, prefix: &'static str) -> syn::Ident {
-        syn::Ident::new(&format!("{}{}", prefix, &self.name), self.name.span())
+    fn prepend_name(&self, prefix: &'static str) -> Ident {
+        Ident::new(&format!("{}{}", prefix, &self.name), self.name.span())
     }
 
     fn params_declr(&self) -> Tokens {
@@ -254,16 +254,31 @@ impl Query {
         quote! { Ok(map(#(#list),*)) }
     }
 
-    fn params_arbitrary(&self) -> Tokens {
-        let list: Vec<_> = self
+    fn params_arbitrary(&self) -> (Tokens, Tokens) {
+        let mut gen_lets = vec![];
+        let mut params = vec![];
+
+        let _ = self
             .params
             .iter()
-            .map(|_| {
-                quote! {&arbitrary::Arbitrary::arbitrary(uns).unwrap()}
-            })
-            .collect();
+            .enumerate()
+            .map(|(idx, param)| {
+                let ttype = &param.ttype;
+                let owned_ttype = if ttype.to_token_stream().to_string() == "str" {
+                    quote! {String}
+                } else {
+                    quote! {#ttype}
+                };
+                let ident = Ident::new(&format!("i_{}", idx), self.name.span());
 
-        quote! { #(#list),* }
+                gen_lets.push(quote! {
+                    let #ident: #owned_ttype = arbitrary::Arbitrary::arbitrary(uns).unwrap();
+                });
+                params.push(quote! {&#ident});
+            })
+            .collect::<Vec<()>>();
+
+        (quote! { #(#gen_lets);* }, quote! { #(#params),* })
     }
 
     fn params_query(&self) -> Tokens {
@@ -289,7 +304,7 @@ impl Query {
         let execute_name = self.prepend_name("execute_");
         let params_declr = self.params_declr();
         let outputs_declr = self.outputs_declr();
-        let params_arbit = self.params_arbitrary();
+        let (params_arbit_prep, params_arbit) = self.params_arbitrary();
         let row_closure = self.outputs_row_closure();
         let params_query = self.params_query();
         let query = &self.query;
@@ -298,7 +313,7 @@ impl Query {
         let test = if let Some(depends) = &self.test {
             let depends = depends.iter().map(|name| {
                 let parent_testsetup_name =
-                    syn::Ident::new(&format!("testsetup_{}", name), self.name.span());
+                    Ident::new(&format!("testsetup_{}", name), self.name.span());
                 quote! {
                     #parent_testsetup_name(uns, deps, conn)?;
                 }
@@ -316,6 +331,7 @@ impl Query {
 
                     #(#depends);*
 
+                    #params_arbit_prep;
                     conn.#execute_name(#params_arbit)?;
                     Ok(())
                 }
@@ -445,7 +461,7 @@ impl Output {
 }
 
 struct Param {
-    name: syn::Ident,
+    name: Ident,
     ttype: syn::Type,
 }
 
@@ -482,7 +498,7 @@ enum Attr {
 
 impl Parse for Attr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let ident: syn::Ident = input.parse()?;
+        let ident: Ident = input.parse()?;
         if ident == "rusqlite" {
             return Ok(Attr::Kind(Kind::Rusqlite));
         }
@@ -509,14 +525,14 @@ enum TestAttr {
 
 impl Parse for TestAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let ident: syn::Ident = input.parse()?;
+        let ident: Ident = input.parse()?;
         if ident == "with" {
             let mut v = vec![];
 
             let _: Token![=] = input.parse()?;
             let content;
             let _ = bracketed!(content in input);
-            let list: Punctuated<syn::Ident, Token![,]> = content.parse_terminated(Parse::parse)?;
+            let list: Punctuated<Ident, Token![,]> = content.parse_terminated(Parse::parse)?;
             for item in list {
                 v.push(item.to_string());
             }

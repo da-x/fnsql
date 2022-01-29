@@ -17,6 +17,11 @@ fnsql::fnsql! {
     insert_new_pet(name: String, data: Option<Vec<u8>>) {
         "INSERT INTO pet (name, data) VALUES (:name, :data)"
     }
+
+    #[rusqlite, test(with=[create_table_pet])]
+    insert_new_pet_str(name: str, data: Option<Vec<u8>>) {
+        "INSERT INTO pet (name, data) VALUES (:name, :data)"
+    }
 }
 
 #[derive(Debug)]
@@ -58,6 +63,8 @@ fn main() -> rusqlite::Result<()> {
                 name: "Max".to_string(),
             })
         })?;
+
+        conn.execute_insert_new_pet_str(&me.name, &me.data)?;
     }
 
     let tx = conn.transaction()?;
