@@ -108,5 +108,6 @@ arbitrary = { version = "1", features = ["derive"] }
 
 ## Limitations
 
- * Does not do any compile-time validation based on SQL query string.
- * Only supports rusqlite
+ * Though it <i>does</i> provide auto-generated tests for validating queries in `cargo test`,
+   it does not do any compile-time validation based on the SQL query string.
+ * It only supports rusqlite for now.
