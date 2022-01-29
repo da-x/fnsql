@@ -6,7 +6,7 @@ but only once, with the query, and in separation with the code that uses the
 query.
 
 It's a very simple implementation that doesn't force any schema or ORM down
-your throat, so if you are already using `rusqlite`, you can't gradually
+your throat, so if you are already using `rusqlite`, you can gradually
 replace your type-less queries with the type-ful wrappers.
 
 The way to generate these wrappers is to specify input and output types for
