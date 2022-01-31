@@ -25,13 +25,13 @@
 //!     }
 //!
 //!     #[rusqlite, test(with=[create_table_pet])]
-//!     get_pet_id_data(name: Option<String>) -> [(i32, Option<Vec<u8>>)] {
-//!         "SELECT id, data FROM pet WHERE pet.name = :name"
+//!     insert_new_pet(name: String, data: Option<Vec<u8>>) {
+//!         "INSERT INTO pet (name, data) VALUES (:name, :data)"
 //!     }
 //!
 //!     #[rusqlite, test(with=[create_table_pet])]
-//!     insert_new_pet(name: String, data: Option<Vec<u8>>) {
-//!         "INSERT INTO pet (name, data) VALUES (:name, :data)"
+//!     get_pet_id_data(name: Option<String>) -> [(i32, Option<Vec<u8>>, String)] {
+//!         "SELECT id, data, name FROM pet WHERE pet.name = :name"
 //!     }
 //! }
 //! ```
@@ -59,17 +59,17 @@
 //! // )?;
 //!
 //! let mut stmt = conn.prepare_get_pet_id_data()?;
-//! // let mut stmt = conn.prepare("SELECT id, name, data FROM pet")?;
+//! // let mut stmt = conn.prepare("SELECT id, data, name FROM pet WHERE pet.name = :name")?;
 //!
-//! let pet_iter = stmt.query_map(&Some("Max".to_string()), |_id, data| {
+//! let pet_iter = stmt.query_map(&Some("Max".to_string()), |id, data, name| {
 //!     Ok::<_, rusqlite::Error>(Pet {
-//!         _id,
+//!         id,
 //!         data,
-//!         name: "Max".to_string(),
+//!         name,
 //!     })
 //! })?;
-//! // let pet_iter = stmt.query_map([], |row| {
-//! //     Ok(Person {
+//! // let pet_iter = stmt.query_map([(":name", "Max".to_string())], |row| {
+//! //     Ok(Pet {
 //! //         id: row.get(0)?,
 //! //         name: row.get(1)?,
 //! //         data: row.get(2)?,
