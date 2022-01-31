@@ -1,6 +1,6 @@
 [package]
 name = "fnsql"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 keywords = ["sql", "proc_macro", "procmacro"]
 license = "MIT/Apache-2.0"
