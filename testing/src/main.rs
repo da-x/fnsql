@@ -80,6 +80,16 @@ fn main() -> rusqlite::Result<()> {
         }
         conn.execute_insert_new_pet_str(&me.name, &me.data)?;
 
+        {
+            let mut stmt = conn.prepare_insert_new_pet_str()?;
+            stmt.execute(&me.name, &me.data)?;
+        }
+
+        {
+            let mut stmt = conn.prepare_cached_insert_new_pet_str()?;
+            stmt.execute(&me.name, &me.data)?;
+        }
+
         let _pet: Pet = conn.query_row_get_pet_id_data(&Some("Max".to_string()), |_id, data| {
             Pet { _id, data, name: "Max".to_string() }
         })?;

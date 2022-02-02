@@ -496,6 +496,11 @@ impl Query {
                     let rows = self.0.query(#params_query)?;
                     Ok(#Rows::new(rows))
                 }
+
+                fn execute(&mut self #params_declr) -> rusqlite::Result<()> {
+                    self.0.execute(#params_query)?;
+                    Ok(())
+                }
             }
 
             #[allow(non_camel_case_types)]
@@ -524,6 +529,11 @@ impl Query {
                 fn query(&mut self #params_declr) -> rusqlite::Result<#Rows<'_>> {
                     let rows = self.0.query(#params_query)?;
                     Ok(#Rows::new(rows))
+                }
+
+                fn execute(&mut self #params_declr) -> rusqlite::Result<()> {
+                    self.0.execute(#params_query)?;
+                    Ok(())
                 }
             }
 
