@@ -295,6 +295,18 @@ impl Query {
         }
     }
 
+    fn params_relay(&self) -> Tokens {
+        let list: Vec<_> = self.params.iter().map(|x| {
+            let name = &x.name;
+            quote! { #name }
+        }).collect();
+        if list.len() == 0 {
+            quote! { }
+        } else {
+            quote! { #(#list),*, }
+        }
+    }
+
     fn expand(&self) -> Tokens {
         let conn_trait_name = self.prepend_name("Connection_");
         let test_name = self.prepend_name("auto_");
@@ -310,12 +322,14 @@ impl Query {
         let prepare_name = self.prepend_name("prepare_");
         let prepare_cached_name = self.prepend_name("prepare_cached_");
         let execute_name = self.prepend_name("execute_");
+        let query_row_name = self.prepend_name("query_row_");
         let params_declr = self.params_declr();
         let outputs_declr = self.outputs_declr();
         let (params_arbit_prep, params_arbit) = self.params_arbitrary();
         let row_closure = self.outputs_row_closure();
         let mapped_row_closure = self.outputs_mapped_row_closure();
         let params_query = self.params_query();
+        let params_relay = self.params_relay();
         let query = &self.query;
         let name = syn::LitStr::new(&self.name.to_string(), self.name.span());
 
@@ -368,6 +382,9 @@ impl Query {
                 fn #prepare_name(&self) -> rusqlite::Result<#StatementType<'_>>;
                 fn #prepare_cached_name(&self) -> rusqlite::Result<#CachedStatementType<'_>>;
                 fn #execute_name(&self #params_declr) -> rusqlite::Result<usize>;
+                fn #query_row_name<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
+                where
+                    F: FnMut(#outputs_declr) -> T;
             }
 
             impl #conn_trait_name for rusqlite::Connection {
@@ -381,6 +398,14 @@ impl Query {
 
                 fn #execute_name(&self #params_declr) -> rusqlite::Result<usize> {
                     self.execute(#query, #params_query)
+                }
+
+                fn #query_row_name<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
+                where
+                    F: FnMut(#outputs_declr) -> T,
+                {
+                    let mut stmt = self.#prepare_name()?;
+                    stmt.query_row(#params_relay f)
                 }
             }
 
@@ -456,6 +481,17 @@ impl Query {
                     Ok(#MappedRows::new(rows, f))
                 }
 
+                fn query_row<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
+                where
+                    F: FnMut(#outputs_declr) -> T,
+                {
+                    let rows = self.query_map(#params_relay f)?;
+                    for item in rows {
+                        return Ok(item?);
+                    }
+                    Err(rusqlite::Error::QueryReturnedNoRows)
+                }
+
                 fn query(&mut self #params_declr) -> rusqlite::Result<#Rows<'_>> {
                     let rows = self.0.query(#params_query)?;
                     Ok(#Rows::new(rows))
@@ -472,6 +508,17 @@ impl Query {
                 {
                     let rows = self.0.query(#params_query)?;
                     Ok(#MappedRows::new(rows, f))
+                }
+
+                fn query_row<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
+                where
+                    F: FnMut(#outputs_declr) -> T,
+                {
+                    let rows = self.query_map(#params_relay f)?;
+                    for item in rows {
+                        return Ok(item?);
+                    }
+                    Err(rusqlite::Error::QueryReturnedNoRows)
                 }
 
                 fn query(&mut self #params_declr) -> rusqlite::Result<#Rows<'_>> {
