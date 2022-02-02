@@ -90,9 +90,12 @@ fn main() -> rusqlite::Result<()> {
             stmt.execute(&me.name, &me.data)?;
         }
 
-        let _pet: Pet = conn.query_row_get_pet_id_data(&Some("Max".to_string()), |_id, data| {
-            Pet { _id, data, name: "Max".to_string() }
-        })?;
+        let _pet: Pet =
+            conn.query_row_get_pet_id_data(&Some("Max".to_string()), |_id, data| Pet {
+                _id,
+                data,
+                name: "Max".to_string(),
+            })?;
     }
 
     let tx = conn.transaction()?;
@@ -108,8 +111,10 @@ fn main() -> rusqlite::Result<()> {
                 })
             })?;
         }
-        let _pet: Pet = stmt.query_row(&Some("Max".to_string()), |_id, data| {
-            Pet { _id, data, name: "Max".to_string() }
+        let _pet: Pet = stmt.query_row(&Some("Max".to_string()), |_id, data| Pet {
+            _id,
+            data,
+            name: "Max".to_string(),
         })?;
     }
 

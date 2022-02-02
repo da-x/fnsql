@@ -296,12 +296,16 @@ impl Query {
     }
 
     fn params_relay(&self) -> Tokens {
-        let list: Vec<_> = self.params.iter().map(|x| {
-            let name = &x.name;
-            quote! { #name }
-        }).collect();
+        let list: Vec<_> = self
+            .params
+            .iter()
+            .map(|x| {
+                let name = &x.name;
+                quote! { #name }
+            })
+            .collect();
         if list.len() == 0 {
-            quote! { }
+            quote! {}
         } else {
             quote! { #(#list),*, }
         }
