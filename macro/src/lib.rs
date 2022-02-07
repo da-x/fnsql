@@ -359,7 +359,15 @@ impl Query {
                     #(#depends);*
 
                     #params_arbit_prep;
-                    conn.#execute_name(#params_arbit)?;
+                    let r = conn.#execute_name(#params_arbit);
+                    match r {
+                        Ok(_) => {}
+                        Err(rusqlite::Error::ExecuteReturnedResults) => {}
+                        Err(err) => {
+                            eprintln!("{:?}", err);
+                            Err(err)?;
+                        },
+                    }
                     Ok(())
                 }
 

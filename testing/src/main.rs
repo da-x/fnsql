@@ -22,6 +22,13 @@ fnsql::fnsql! {
     insert_new_pet_str(name: str, data: Option<Vec<u8>>) {
         "INSERT INTO pet (name, data) VALUES (:name, :data)"
     }
+
+    #[rusqlite, test(with=[create_table_pet])]
+    get_pet_count(pet_id: i64) -> [(i64)] {r#"
+         SELECT count(*)
+           FROM pet
+          WHERE id = :pet_id
+    "#}
 }
 
 #[derive(Debug)]
