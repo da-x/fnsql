@@ -271,6 +271,8 @@ impl Query {
                 let ttype = &param.ttype;
                 let owned_ttype = if ttype.to_token_stream().to_string() == "str" {
                     quote! {String}
+                } else if ttype.to_token_stream().to_string() == "[u8]" {
+                    quote! {Vec<u8>}
                 } else {
                     quote! {#ttype}
                 };

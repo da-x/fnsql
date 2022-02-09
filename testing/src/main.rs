@@ -24,6 +24,11 @@ fnsql::fnsql! {
     }
 
     #[rusqlite, test(with=[create_table_pet])]
+    update_pet_data(name: str, data: [u8]) {
+        "UPDATE pet SET data = :data WHERE name = :name"
+    }
+
+    #[rusqlite, test(with=[create_table_pet])]
     get_pet_count(pet_id: i64) -> [(i64)] {r#"
          SELECT count(*)
            FROM pet
@@ -103,6 +108,10 @@ fn main() -> rusqlite::Result<()> {
                 data,
                 name: "Max".to_string(),
             })?;
+    }
+
+    {
+        conn.execute_update_pet_data("x", "asd".as_bytes())?;
     }
 
     let tx = conn.transaction()?;
