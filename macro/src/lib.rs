@@ -392,7 +392,7 @@ impl Query {
 
         quote! {
             #[allow(non_camel_case_types)]
-            trait #conn_trait_name {
+            pub trait #conn_trait_name {
                 fn #prepare_name(&self) -> rusqlite::Result<#StatementType<'_>>;
                 fn #prepare_cached_name(&self) -> rusqlite::Result<#CachedStatementType<'_>>;
                 fn #execute_name(&self #params_declr) -> rusqlite::Result<usize>;
@@ -484,7 +484,7 @@ impl Query {
             }
 
             #[allow(non_camel_case_types)]
-            struct #StatementType<'a>(pub rusqlite::Statement<'a>);
+            pub struct #StatementType<'a>(pub rusqlite::Statement<'a>);
 
             impl<'a> #StatementType<'a> {
                 fn query_map<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#MappedRows<'_, F>>
@@ -518,7 +518,7 @@ impl Query {
             }
 
             #[allow(non_camel_case_types)]
-            struct #CachedStatementType<'a>(pub rusqlite::CachedStatement<'a>);
+            pub struct #CachedStatementType<'a>(pub rusqlite::CachedStatement<'a>);
 
             impl<'a> #CachedStatementType<'a> {
                 fn query_map<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#MappedRows<'_, F>>
