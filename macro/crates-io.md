@@ -6,11 +6,12 @@ but only once, with the query, and in separation with the code that uses the
 query.
 
 It's a very simple implementation that doesn't force any schema or ORM down
-your throat, so if you are already using `rusqlite`, you can gradually
-replace your type-less queries with the type-ful wrappers.
+your throat, so if you are already using the `rusqlite` or `postgres` crates,
+you can gradually replace your type-less queries with the type-ful wrappers,
+or migrate from an opinionated ORM.
 
 The way to generate these wrappers is to specify input and output types for
-each of the queries, for example, consider the following definitions
+each one of the queries. For example, consider the following definitions
 specified with `fnsql`, based on the `rusqlite` example:
 
 ```rust

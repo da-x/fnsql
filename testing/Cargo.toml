@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fnsql = "*"
+fnsql = { version = "*", features = ["all"] }
 rusqlite = "0.26"
+postgres = "0.19"
 
 [dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }

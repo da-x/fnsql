@@ -6,11 +6,12 @@
 //! query.
 //!
 //! It's a very simple implementation that doesn't force any schema or ORM down
-//! your throat, so if you are already using `rusqlite`, you can gradually
-//! replace your type-less queries with the type-ful wrappers.
+//! your throat, so if you are already using the `rusqlite` or `postgres` crates,
+//! you can gradually replace your type-less queries with the type-ful wrappers,
+//! or migrate from an opinionated ORM.
 //!
 //! The way to generate these wrappers is to specify input and output types for
-//! each of the queries, for example, consider the following definitions
+//! each one of the queries. For example, consider the following definitions
 //! specified with `fnsql`, based on the `rusqlite` example:
 //!
 //! ```rust
@@ -114,15 +115,18 @@
 
 extern crate proc_macro;
 
+use std::collections::HashMap;
+
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
 use quote::{quote, ToTokens};
+use regex::{Regex, Captures};
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    token, Ident, Token,
+    token, Ident, Token, LitStr,
 };
 
 struct Queries {
@@ -142,6 +146,7 @@ impl Parse for Queries {
 
 enum Kind {
     Rusqlite,
+    PostgreSQL,
 }
 
 struct Query {
@@ -151,12 +156,14 @@ struct Query {
     query: syn::LitStr,
     kind: Kind,
     test: Option<Vec<String>>,
+    named: bool,
 }
 
 impl Parse for Query {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut kind = None;
         let mut test = None;
+        let mut named = false;
 
         if input.peek(Token![#]) {
             let _: Token![#] = input.parse()?;
@@ -181,6 +188,9 @@ impl Parse for Query {
                             }
                         }
                     }
+                    Attr::Named => {
+                        named = true;
+                    },
                 }
             }
         };
@@ -221,6 +231,7 @@ impl Parse for Query {
             query,
             kind,
             test,
+            named,
         })
     }
 }
@@ -240,7 +251,7 @@ impl Query {
         quote! { #(#list),* }
     }
 
-    fn outputs_row_closure(&self) -> Tokens {
+    fn outputs_row_get_numbered(&self) -> Tokens {
         let list: Vec<_> = self
             .outputs
             .iter()
@@ -254,8 +265,22 @@ impl Query {
         quote! { #(#list),* }
     }
 
+    fn outputs_row_try_get_numbered(&self) -> Tokens {
+        let list: Vec<_> = self
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                let i = syn::LitInt::new(&format!("{}", i), self.name.span());
+                quote! {row.try_get(#i)?}
+            })
+            .collect();
+
+        quote! { #(#list),* }
+    }
+
     fn outputs_mapped_row_closure(&self) -> Tokens {
-        let list = self.outputs_row_closure();
+        let list = self.outputs_row_get_numbered();
         quote! { Ok(map(#list)) }
     }
 
@@ -289,9 +314,18 @@ impl Query {
     }
 
     fn params_query(&self) -> Tokens {
-        let list: Vec<_> = self.params.iter().map(|x| x.expand_query()).collect();
+        let list: Vec<_> = self.params.iter().map(|x| x.expand_query(self)).collect();
         if list.len() == 0 {
             quote! { [] }
+        } else {
+            quote! { &[#(#list),*] }
+        }
+    }
+
+    fn params_query_ref(&self) -> Tokens {
+        let list: Vec<_> = self.params.iter().map(|x| x.expand_query(self)).collect();
+        if list.len() == 0 {
+            quote! { &[] }
         } else {
             quote! { &[#(#list),*] }
         }
@@ -314,9 +348,151 @@ impl Query {
     }
 
     fn expand(&self) -> Tokens {
+        match self.kind {
+            Kind::Rusqlite => self.sqlite_expand(),
+            Kind::PostgreSQL => self.postgres_expand(),
+        }
+    }
+
+    fn postgres_expand(&self) -> Tokens {
+        #[allow(non_snake_case)]
+        let Client = self.prepend_name("Client_");
+        #[allow(non_snake_case)]
+        let Statement = self.prepend_name("Statement_");
+        let execute_name = self.prepend_name("execute_");
+        let execute_prepared_name = self.prepend_name("execute_prepared_");
+        let prepare_name = self.prepend_name("prepare_");
+        let convert_row = self.prepend_name("convert_row_");
+        let queue_name = self.prepend_name("queue_");
+        let queue_prepared_name = self.prepend_name("queue_prepared_");
+        let queue_one_name = self.prepend_name("queue_one_");
+        let queue_one_prepared_name = self.prepend_name("queue_one_prepared_");
+        let queue_opt_name = self.prepend_name("queue_opt_");
+        let queue_opt_prepared_name = self.prepend_name("queue_opt_prepared_");
+        let params_declr = self.params_declr();
+        let params_query_ref = self.params_query_ref();
+        let outputs_declr = self.outputs_declr();
+        let row_try_get_numbered = self.outputs_row_try_get_numbered();
+
+        let query;
+        if self.named {
+            lazy_static::lazy_static! {
+                static ref RE: Regex = Regex::new(":([A-Za-z_][_A-Za-z0-9]*)($|[^_A-Za-z0-9])").unwrap();
+            }
+
+            let params: HashMap<_, _> = self
+                .params
+                .iter()
+                .enumerate()
+                .map(|(idx, param)| {
+                    (format!("{}", param.name), idx)
+                }).collect();
+
+            query = String::from(RE.replace_all(&self.query.value(), |captures: &Captures| {
+                let c1 = captures.get(1).unwrap().as_str();
+                let c2 = captures.get(2).unwrap().as_str();
+                match params.get(c1) {
+                    Some(idx) => format!("${}{}", idx + 1, c2),
+                    None => format!("{}{}", c1, c2),
+                }
+            }));
+        } else {
+            query = self.query.value();
+        };
+        let query = LitStr::new(query.as_str(), self.query.span());
+
+        let defs = quote! {
+            #[allow(non_camel_case_types)]
+            pub struct #Statement(pub postgres::Statement);
+
+            #[allow(non_camel_case_types)]
+            pub trait #Client {
+                fn #prepare_name(&mut self) -> Result<#Statement, postgres::Error>;
+                fn #execute_name(&mut self #params_declr) -> Result<u64, postgres::Error>;
+                fn #execute_prepared_name(&mut self, stmt: &#Statement #params_declr)
+                    -> Result<u64, postgres::Error>;
+                fn #queue_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error>;
+                fn #queue_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error>;
+                fn #queue_one_name(&mut self #params_declr) -> Result<(#outputs_declr), postgres::Error>;
+                fn #queue_one_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<(#outputs_declr), postgres::Error>;
+                fn #queue_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error>;
+                fn #queue_opt_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error>;
+            }
+
+            pub fn #convert_row(row: postgres::Row) -> Result<(#outputs_declr), postgres::Error> {
+                Ok((#row_try_get_numbered))
+            }
+        };
+
+        let timpl = quote! {
+            fn #prepare_name(&mut self)  -> Result<#Statement, postgres::Error> {
+                self.prepare(#query).map(#Statement)
+            }
+
+            fn #execute_name(&mut self #params_declr) -> Result<u64, postgres::Error> {
+                self.execute(#query, #params_query_ref)
+            }
+
+            fn #execute_prepared_name(&mut self, stmt: &#Statement #params_declr)
+                -> Result<u64, postgres::Error>
+            {
+                self.execute(&stmt.0, #params_query_ref)
+            }
+
+            fn #queue_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error> {
+                let result: Result<Vec<_>, postgres::Error> =
+                    self.query(#query, #params_query_ref)?.into_iter().map(#convert_row).collect();
+                result
+            }
+
+            fn #queue_one_name(&mut self #params_declr) -> Result<(#outputs_declr), postgres::Error> {
+                Ok(#convert_row(self.query_one(#query, #params_query_ref)?)?)
+            }
+
+            fn #queue_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error> {
+                let result: Result<Vec<_>, postgres::Error> =
+                    self.query(&stmt.0, #params_query_ref)?.into_iter().map(#convert_row).collect();
+                result
+            }
+
+            fn #queue_one_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<(#outputs_declr), postgres::Error> {
+                Ok(#convert_row(self.query_one(&stmt.0, #params_query_ref)?)?)
+            }
+
+            fn #queue_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error> {
+                match self.query_opt(#query, #params_query_ref)? {
+                    None => Ok(None),
+                    Some(x) => Ok(Some(#convert_row(x)?)),
+                }
+            }
+
+            fn #queue_opt_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error> {
+                match self.query_opt(&stmt.0, #params_query_ref)? {
+                    None => Ok(None),
+                    Some(x) => Ok(Some(#convert_row(x)?)),
+                }
+            }
+        };
+
+        let test_code = self.test_code();
+
+        quote! {
+            #defs
+
+            impl #Client for postgres::Client {
+                #timpl
+            }
+
+            impl<'a> #Client for postgres::Transaction<'a> {
+                #timpl
+            }
+
+            #test_code
+        }
+    }
+
+    fn sqlite_expand(&self) -> Tokens {
         let conn_trait_name = self.prepend_name("Connection_");
-        let test_name = self.prepend_name("auto_");
-        let testsetup_name = self.prepend_name("testsetup_");
         #[allow(non_snake_case)]
         let StatementType = self.prepend_name("Statement_");
         #[allow(non_snake_case)]
@@ -331,64 +507,13 @@ impl Query {
         let query_row_name = self.prepend_name("query_row_");
         let params_declr = self.params_declr();
         let outputs_declr = self.outputs_declr();
-        let (params_arbit_prep, params_arbit) = self.params_arbitrary();
-        let row_closure = self.outputs_row_closure();
+        let row_closure = self.outputs_row_get_numbered();
         let mapped_row_closure = self.outputs_mapped_row_closure();
         let params_query = self.params_query();
         let params_relay = self.params_relay();
         let query = &self.query;
-        let name = syn::LitStr::new(&self.name.to_string(), self.name.span());
 
-        let test = if let Some(depends) = &self.test {
-            let depends = depends.iter().map(|name| {
-                let parent_testsetup_name =
-                    Ident::new(&format!("testsetup_{}", name), self.name.span());
-                quote! {
-                    #parent_testsetup_name(uns, deps, conn)?;
-                }
-            });
-            quote! {
-                #[cfg(test)]
-                fn #testsetup_name(
-                    uns: &mut arbitrary::Unstructured,
-                    deps: &mut std::collections::HashSet<&'static str>,
-                    conn: &rusqlite::Connection) -> rusqlite::Result<()>
-                {
-                    if !deps.insert(#name) {
-                        return Ok(());
-                    }
-
-                    #(#depends);*
-
-                    #params_arbit_prep;
-                    let r = conn.#execute_name(#params_arbit);
-                    match r {
-                        Ok(_) => {}
-                        Err(rusqlite::Error::ExecuteReturnedResults) => {}
-                        Err(err) => {
-                            eprintln!("{:?}", err);
-                            Err(err)?;
-                        },
-                    }
-                    Ok(())
-                }
-
-                #[test]
-                fn #test_name() -> rusqlite::Result<()> {
-                    let conn = rusqlite::Connection::open_in_memory()?;
-                    let mut deps = std::collections::HashSet::new();
-                    let raw_data: &[u8] = &[1, 2, 3];
-                    let mut unstructured = arbitrary::Unstructured::new(raw_data);
-
-                    #testsetup_name(&mut unstructured, &mut deps, &conn)?;
-                    Ok(())
-                }
-            }
-        } else {
-            quote! {}
-        };
-
-        matches!(self.kind, Kind::Rusqlite);
+        let test_code = self.test_code();
 
         quote! {
             #[allow(non_camel_case_types)]
@@ -551,8 +676,93 @@ impl Query {
                 }
             }
 
-            #test
+            #test_code
         }
+    }
+
+    fn test_code(&self) -> Tokens {
+        let test_name = self.prepend_name("auto_");
+        let testsetup_name = self.prepend_name("testsetup_");
+        let (params_arbit_prep, params_arbit) = self.params_arbitrary();
+        let execute_name = self.prepend_name("execute_");
+        let name = syn::LitStr::new(&self.name.to_string(), self.name.span());
+
+        let client_type = match self.kind {
+            Kind::Rusqlite => quote!{rusqlite::Connection},
+            Kind::PostgreSQL => quote!{postgres::Client},
+        };
+        let client_ref_type = match self.kind {
+            Kind::Rusqlite => quote!{&},
+            Kind::PostgreSQL => quote!{&mut},
+        };
+        let ignore_error = match self.kind {
+            Kind::Rusqlite => quote!{Err(rusqlite::Error::ExecuteReturnedResults) => {}},
+            Kind::PostgreSQL => quote!{},
+        };
+        let error_type = match self.kind {
+            Kind::Rusqlite => quote!{rusqlite::Error},
+            Kind::PostgreSQL => quote!{postgres::Error},
+        };
+        let open_client = match self.kind {
+            Kind::Rusqlite => quote!{
+                let conn = #client_type::open_in_memory()?;
+            },
+            Kind::PostgreSQL => quote!{let mut conn = {
+                let mut conn = Client::connect("user=postgres host=localhost port=5433", NoTls).unwrap();
+                conn.execute("SET search_path TO pg_temp", &[]).unwrap();
+                conn
+            }; },
+        };
+
+        let test = if let Some(depends) = &self.test {
+            let depends = depends.iter().map(|name| {
+                let parent_testsetup_name =
+                    Ident::new(&format!("testsetup_{}", name), self.name.span());
+                quote! {
+                    #parent_testsetup_name(uns, deps, conn)?;
+                }
+            });
+            quote! {
+                #[cfg(test)]
+                fn #testsetup_name(
+                    uns: &mut arbitrary::Unstructured,
+                    deps: &mut std::collections::HashSet<&'static str>,
+                    conn: #client_ref_type #client_type) -> Result<(), #error_type>
+                {
+                    if !deps.insert(#name) {
+                        return Ok(());
+                    }
+
+                    #(#depends);*
+
+                    #params_arbit_prep;
+                    let r = conn.#execute_name(#params_arbit);
+                    match r {
+                        Ok(_) => {}
+                        #ignore_error
+                        Err(err) => {
+                            eprintln!("{:?}", err);
+                            Err(err)?;
+                        },
+                    }
+                    Ok(())
+                }
+
+                #[test]
+                fn #test_name() -> Result<(), #error_type> {
+                    #open_client;
+                    let mut deps = std::collections::HashSet::new();
+                    let raw_data: &[u8] = &[1, 2, 3];
+                    let mut unstructured = arbitrary::Unstructured::new(raw_data);
+
+                    #testsetup_name(&mut unstructured, &mut deps, #client_ref_type conn)?;
+                    Ok(())
+                }
+            }
+        } else {
+            quote! {}
+        };
+        test
     }
 }
 
@@ -599,17 +809,21 @@ impl Param {
         quote! { #name: &#ttype }
     }
 
-    fn expand_query(&self) -> Tokens {
+    fn expand_query(&self, query: &Query) -> Tokens {
         let name = &self.name;
         let specifier = syn::LitStr::new(&format!(":{}", name), name.span());
 
-        quote! { (#specifier, &#name as &dyn rusqlite::ToSql) }
+        match query.kind {
+            Kind::Rusqlite => quote! { (#specifier, &#name as &dyn rusqlite::ToSql) },
+            Kind::PostgreSQL => quote! { &#name as &(dyn postgres::types::ToSql + Sync) }
+        }
     }
 }
 
 enum Attr {
     Kind(Kind),
     Test(Vec<TestAttr>),
+    Named,
 }
 
 impl Parse for Attr {
@@ -617,6 +831,12 @@ impl Parse for Attr {
         let ident: Ident = input.parse()?;
         if ident == "rusqlite" {
             return Ok(Attr::Kind(Kind::Rusqlite));
+        }
+        if ident == "postgres" {
+            return Ok(Attr::Kind(Kind::PostgreSQL));
+        }
+        if ident == "named" {
+            return Ok(Attr::Named);
         }
         if ident == "test" {
             let mut v = vec![];

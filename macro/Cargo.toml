@@ -14,10 +14,17 @@ include = ["Cargo.toml", "src/**/*.rs", "crates-io.md", "README.md", "LICENSE-AP
 [lib]
 proc-macro = true
 
+[features]
+default = []
+all = ["with-rusqlite"]
+with-rusqlite = []
+
 [dependencies]
 quote = "1"
 proc-macro2 = "1.0"
+lazy_static = "1.4"
 syn = "1.0"
+regex = "1.5"
 
 [dev-dependencies]
 rusqlite = "0.26.3"
