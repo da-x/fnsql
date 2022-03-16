@@ -1,5 +1,3 @@
-use crate_postgres::{NoTls, Client};
-
 fnsql::fnsql! {
     #[postgres, test]
     create_table_pet() {
@@ -39,11 +37,6 @@ fnsql::fnsql! {
 }
 
 
-fn get_conn() -> Client {
-    let conn = Client::connect("user=postgres host=localhost port=5433", NoTls).unwrap();
-    conn
-}
-
 #[derive(Debug)]
 struct Pet {
     id: i32,
@@ -52,7 +45,7 @@ struct Pet {
 }
 
 pub fn main() -> Result<(), postgres::Error> {
-    let mut conn = get_conn();
+    let mut conn = fnsql::postgres::testing_client()?;
     conn.execute("SET search_path TO pg_temp", &[]).unwrap();
     conn.execute("CREATE TYPE foo AS ENUM ('Bar', 'Baz')", &[]).unwrap();
 

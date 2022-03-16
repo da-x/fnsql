@@ -111,7 +111,7 @@
 //!
 //!  * Though it <i>does</i> provide auto-generated tests for validating queries in `cargo test`,
 //!    it does not do any compile-time validation based on the SQL query string.
-//!  * It only supports rusqlite for now.
+//!  * It only supports `rusqlite` and `postgres` for now.
 
 extern crate proc_macro;
 
@@ -732,7 +732,7 @@ impl Query {
                 let conn = #client_type::open_in_memory()?;
             },
             Kind::PostgreSQL => quote!{let mut conn = {
-                let mut conn = Client::connect("user=postgres host=localhost port=5433", NoTls).unwrap();
+                let mut conn = fnsql::postgres::testing_client().expect("unable to connect testing client");
                 conn.execute("SET search_path TO pg_temp", &[]).unwrap();
                 conn
             }; },
@@ -922,11 +922,12 @@ impl Parse for TestAttr {
 /// **For examples see the root doc of the `fnsql` crate.**
 ///
 /// - Return type is optional, and only meaningful for SQL operations that return row data.
-/// - The only supported `sgl-engine-type` is `rusqlite`.
+/// - sql-engine-type: supported backends: `rusqlite` and `postgres`.
 /// - Testing is optional - you have to specific the `test` attribute for it.
 /// - With `test(with=[...])`, you specify the quries that need execution for this
 ///   query to work.
-///
+/// - The `named` attribute allows using named arguments, e.g. ':name' with `postgres` in additon to the default position-based arguments of '$1' '$2', etc.
+
 #[proc_macro]
 pub fn fnsql(input: TokenStream) -> TokenStream {
     let queries: Queries = parse_macro_input!(input);

@@ -122,7 +122,7 @@ arbitrary = { version = "1", features = ["derive"] }
 
  * Though it <i>does</i> provide auto-generated tests for validating queries in `cargo test`,
    it does not do any compile-time validation based on the SQL query string.
- * It only supports rusqlite for now.
+ * It only supports `rusqlite` and `postgres` for now.
 
 ## License
 
