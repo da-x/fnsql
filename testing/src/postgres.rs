@@ -58,12 +58,22 @@ pub fn main() -> Result<(), postgres::Error> {
 
     conn.execute_create_table_pet()?;
 
-    let me = Pet {
+    let mut me = Pet {
         id: 0,
         name: "Max".to_string(),
         data: None,
     };
+
     conn.execute_insert_new_pet(&me.id, &me.name, &me.data)?;
+
+    me.id += 1;
+    let prep = conn.prepare_insert_new_pet()?;
+    conn.execute_prepared_insert_new_pet(&prep, &me.id, &me.name, &me.data)?;
+
+    me.id += 1;
+    let mut cache = fnsql::postgres::Cache::new();
+    let prep = conn.prepare_cached_insert_new_pet(&mut cache)?;
+    conn.execute_prepared_insert_new_pet(&prep, &me.id, &me.name, &me.data)?;
 
     Ok(())
 }

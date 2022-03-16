@@ -16,9 +16,10 @@ proc-macro = true
 
 [features]
 default = []
-all = ["with-rusqlite", "with-postgres"]
+all = ["with-rusqlite", "with-postgres", "prepare-cache"]
 with-rusqlite = []
 with-postgres = []
+prepare-cache = []
 
 [dependencies]
 quote = "1"

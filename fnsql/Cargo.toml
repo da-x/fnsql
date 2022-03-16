@@ -13,9 +13,11 @@ include = ["Cargo.toml", "src/**/*.rs", "crates-io.md", "README.md", "LICENSE-AP
 
 [features]
 default = []
-all = ["with-rusqlite", "with-postgres"]
+all = ["with-rusqlite", "with-postgres", "prepare-cache"]
 with-rusqlite = ["fnsql-macro/with-postgres"]
-with-postgres = ["fnsql-macro/with-rusqlite"]
+with-postgres = ["fnsql-macro/with-rusqlite", "postgres"]
+prepare-cache = ["fnsql-macro/prepare-cache"]
 
 [dependencies]
 fnsql-macro = "0.2.5"
+postgres = { version = "0.19", optional = true }

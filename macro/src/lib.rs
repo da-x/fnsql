@@ -362,6 +362,7 @@ impl Query {
         let execute_name = self.prepend_name("execute_");
         let execute_prepared_name = self.prepend_name("execute_prepared_");
         let prepare_name = self.prepend_name("prepare_");
+        let prepare_cached_name = self.prepend_name("prepare_cached_");
         let convert_row = self.prepend_name("convert_row_");
         let queue_name = self.prepend_name("queue_");
         let queue_prepared_name = self.prepend_name("queue_prepared_");
@@ -401,6 +402,26 @@ impl Query {
         };
         let query = LitStr::new(query.as_str(), self.query.span());
 
+        #[cfg(feature = "prepare-cache")]
+        let (prepare_cached_decl, prepare_cached_impl) = {
+            let prepare_cached_decl = quote! {
+                fn #prepare_cached_name(&mut self, cache: &mut fnsql::postgres::Cache) -> Result<#Statement, postgres::Error>;
+            };
+
+            let prepare_cached_impl = quote! {
+                fn #prepare_cached_name(&mut self, cache: &mut fnsql::postgres::Cache) -> Result<#Statement, postgres::Error> {
+                    Ok(#Statement(cache.prepare(#query, self)?))
+                }
+            };
+
+            (prepare_cached_decl, prepare_cached_impl)
+        };
+
+        #[cfg(not(feature = "prepare-cache"))]
+        let (prepare_cached_decl, prepare_cached_impl) = {
+            (quote!{}, quote!{})
+        };
+
         let defs = quote! {
             #[allow(non_camel_case_types)]
             pub struct #Statement(pub postgres::Statement);
@@ -408,6 +429,7 @@ impl Query {
             #[allow(non_camel_case_types)]
             pub trait #Client {
                 fn #prepare_name(&mut self) -> Result<#Statement, postgres::Error>;
+                #prepare_cached_decl
                 fn #execute_name(&mut self #params_declr) -> Result<u64, postgres::Error>;
                 fn #execute_prepared_name(&mut self, stmt: &#Statement #params_declr)
                     -> Result<u64, postgres::Error>;
@@ -428,6 +450,8 @@ impl Query {
             fn #prepare_name(&mut self)  -> Result<#Statement, postgres::Error> {
                 self.prepare(#query).map(#Statement)
             }
+
+            #prepare_cached_impl
 
             fn #execute_name(&mut self #params_declr) -> Result<u64, postgres::Error> {
                 self.execute(#query, #params_query_ref)
