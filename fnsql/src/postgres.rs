@@ -49,8 +49,9 @@ pub mod cache;
 #[cfg(feature = "prepare-cache")]
 pub use cache::Cache;
 use postgres::{NoTls, Client};
+pub use postgres::Error;
 
-use std::io::{Write, Error};
+use std::io::{Write};
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -66,8 +67,8 @@ pub fn get_docker_compose() -> String {
     s
 }
 
-pub fn with_docker_compose<F>(f: F) -> Result<(), Error>
-    where F: FnOnce(PathBuf) -> Result<(), Error>
+pub fn with_docker_compose<F>(f: F) -> Result<(), std::io::Error>
+    where F: FnOnce(PathBuf) -> Result<(), std::io::Error>
 {
     let tmp_dir = tempdir::TempDir::new("fnsql-postgres-docker")?;
 
@@ -96,7 +97,7 @@ pub fn testing_client() -> Result<postgres::Client, postgres::Error> {
     Ok(client)
 }
 
-pub fn testing_docker_up() -> Result<(), Error> {
+pub fn testing_docker_up() -> Result<(), std::io::Error> {
     with_docker_compose(|path| {
         std::process::Command::new("docker-compose")
             .arg("-p").arg(module_path!())
@@ -106,7 +107,7 @@ pub fn testing_docker_up() -> Result<(), Error> {
     })
 }
 
-pub fn testing_docker_down() -> Result<(), Error> {
+pub fn testing_docker_down() -> Result<(), std::io::Error> {
     with_docker_compose(|path| {
         std::process::Command::new("docker-compose")
             .arg("-p").arg(module_path!())
@@ -121,17 +122,15 @@ macro_rules! fnsql_define_postgres_test_handlers {
     ($name_up:ident, $name_down:ident) => {
         #[cfg(test)]
         mod tests {
-            use super::*;
-
             #[ignore]
             #[test]
-            fn $name_up() -> Result<(), Error> {
+            fn $name_up() -> Result<(), std::io::Error> {
                 $crate::postgres::testing_docker_up()
             }
 
             #[ignore]
             #[test]
-            fn $name_down() -> Result<(), Error> {
+            fn $name_down() -> Result<(), std::io::Error> {
                 $crate::postgres::testing_docker_down()
             }
         }
