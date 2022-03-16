@@ -2,9 +2,11 @@
 
 members = [
     "macro",
+    "fnsql",
     "testing",
 ]
 
 [patch.crates-io]
-fnsql = { path = "macro" }
+fnsql-macro = { path = "macro" }
+fnsql = { path = "fnsql" }
 testing = { path = "testing" }

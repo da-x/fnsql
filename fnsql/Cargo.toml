@@ -1,5 +1,5 @@
 [package]
-name = "fnsql-macro"
+name = "fnsql"
 version = "0.2.5"
 edition = "2021"
 keywords = ["sql", "proc_macro", "procmacro"]
@@ -11,23 +11,11 @@ categories = ["database"]
 readme = "crates-io.md"
 include = ["Cargo.toml", "src/**/*.rs", "crates-io.md", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 
-[lib]
-proc-macro = true
-
 [features]
 default = []
 all = ["with-rusqlite", "with-postgres"]
-with-rusqlite = []
-with-postgres = []
+with-rusqlite = ["fnsql-macro/with-postgres"]
+with-postgres = ["fnsql-macro/with-rusqlite"]
 
 [dependencies]
-quote = "1"
-proc-macro2 = "1.0"
-lazy_static = "1.4"
-syn = "1.0"
-regex = "1.5"
-
-[dev-dependencies]
-rusqlite = "0.26.3"
-fnsql = "0.2.5"
-arbitrary = { version = "1", features = ["derive"] }
+fnsql-macro = "0.2.5"
