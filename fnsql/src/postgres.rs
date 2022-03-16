@@ -116,6 +116,7 @@ pub fn testing_docker_down() -> Result<(), Error> {
     })
 }
 
+#[macro_export]
 macro_rules! fnsql_define_postgres_test_handlers {
     ($name_up:ident, $name_down:ident) => {
         #[cfg(test)]
