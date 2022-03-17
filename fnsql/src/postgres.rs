@@ -55,26 +55,14 @@ use std::io::{Write};
 use std::fs::File;
 use std::path::PathBuf;
 
-static SQL_SETUP: &'static str = include_str!("postgres/sql_setup.sh");
-static DOCKER_COMPOSE: &'static str = include_str!("postgres/docker-compose.yml");
-
-pub fn get_docker_compose() -> String {
-    let mut s = String::from(DOCKER_COMPOSE);
-    let port = std::env::var("FNSQL_TEST_POSTGRES_PORT")
-        .expect("undefined FNSQL_TEST_POSTGRES_PORT");
-    s = s.replace("${FNSQL_TEST_POSTGRES_PORT}", &port);
-
-    s
-}
-
-pub fn with_docker_compose<F>(f: F) -> Result<(), std::io::Error>
+pub fn with_docker_compose<F>(f: F, compose_yaml: &str) -> Result<(), std::io::Error>
     where F: FnOnce(PathBuf) -> Result<(), std::io::Error>
 {
     let tmp_dir = tempdir::TempDir::new("fnsql-postgres-docker")?;
 
     let file_path = tmp_dir.path().join("docker-compose.yaml");
     let mut tmp_file = File::create(&file_path)?;
-    writeln!(tmp_file, "{}", get_docker_compose())?;
+    writeln!(tmp_file, "{}", compose_yaml)?;
     drop(tmp_file);
 
     let sql_setup = tmp_dir.path().join("sql_setup.sh");
@@ -97,43 +85,50 @@ pub fn testing_client() -> Result<postgres::Client, postgres::Error> {
     Ok(client)
 }
 
-pub fn testing_docker_up() -> Result<(), std::io::Error> {
+pub fn testing_docker_up(compose_yaml: &str) -> Result<(), std::io::Error> {
     with_docker_compose(|path| {
         std::process::Command::new("docker-compose")
             .arg("-p").arg(module_path!())
             .arg("-f").arg(path)
             .arg("up").arg("-d").output()?;
         Ok(())
-    })
+    }, compose_yaml)
 }
 
-pub fn testing_docker_down() -> Result<(), std::io::Error> {
+pub fn testing_docker_down(compose_yaml: &str) -> Result<(), std::io::Error> {
     with_docker_compose(|path| {
         std::process::Command::new("docker-compose")
             .arg("-p").arg(module_path!())
             .arg("-f").arg(path)
             .arg("down").output()?;
         Ok(())
-    })
+    }, compose_yaml)
 }
+
+pub static DOCKER_COMPOSE: &'static str = include_str!("postgres/docker-compose.yml");
+pub static SQL_SETUP: &'static str = include_str!("postgres/sql_setup.sh");
 
 #[macro_export]
 macro_rules! fnsql_define_postgres_test_handlers {
-    ($name_up:ident, $name_down:ident) => {
+    ($name_up:ident, $name_down:ident, $compose:expr) => {
         #[cfg(test)]
         mod tests {
             #[ignore]
             #[test]
             fn $name_up() -> Result<(), std::io::Error> {
-                $crate::postgres::testing_docker_up()
+                $crate::postgres::testing_docker_up($compose)
             }
 
             #[ignore]
             #[test]
             fn $name_down() -> Result<(), std::io::Error> {
-                $crate::postgres::testing_docker_down()
+                $crate::postgres::testing_docker_down($compose)
             }
         }
+    };
+    ($name_up:ident, $name_down:ident) => {
+        fnsql_define_postgres_test_handlers!($name_up, $name_down,
+            $crate::postgres::DOCKER_COMPOSE);
     };
 }
 
