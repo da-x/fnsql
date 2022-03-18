@@ -1,6 +1,6 @@
 [package]
 name = "fnsql"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 keywords = ["sql", "proc_macro", "procmacro"]
 license = "MIT/Apache-2.0"
@@ -9,7 +9,7 @@ homepage = "https://github.com/da-x/fnsql"
 repository = "https://github.com/da-x/fnsql"
 categories = ["database"]
 readme = "crates-io.md"
-include = ["Cargo.toml", "src/**/*.rs", "crates-io.md", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
+include = ["Cargo.toml", "src/**/*.rs", "src/**/*.yml", "src/**/*.sh", "crates-io.md", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 
 [features]
 default = []
@@ -19,6 +19,6 @@ with-postgres = ["fnsql-macro/with-rusqlite", "postgres", "tempdir"]
 prepare-cache = ["fnsql-macro/prepare-cache"]
 
 [dependencies]
-fnsql-macro = "0.2.6"
+fnsql-macro = "0.2.7"
 tempdir = { version = "0.3", optional = true }
 postgres = { version = "0.19", optional = true }
