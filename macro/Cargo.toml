@@ -1,6 +1,6 @@
 [package]
 name = "fnsql-macro"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 keywords = ["sql", "proc_macro", "procmacro"]
 license = "MIT/Apache-2.0"
@@ -30,5 +30,5 @@ regex = "1.5"
 
 [dev-dependencies]
 rusqlite = "0.26.3"
-fnsql = "0.2.5"
+fnsql = "0.2.6"
 arbitrary = { version = "1", features = ["derive"] }
