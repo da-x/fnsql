@@ -364,12 +364,12 @@ impl Query {
         let prepare_name = self.prepend_name("prepare_");
         let prepare_cached_name = self.prepend_name("prepare_cached_");
         let convert_row = self.prepend_name("convert_row_");
-        let queue_name = self.prepend_name("queue_");
-        let queue_prepared_name = self.prepend_name("queue_prepared_");
-        let queue_one_name = self.prepend_name("queue_one_");
-        let queue_one_prepared_name = self.prepend_name("queue_one_prepared_");
-        let queue_opt_name = self.prepend_name("queue_opt_");
-        let queue_opt_prepared_name = self.prepend_name("queue_opt_prepared_");
+        let query_name = self.prepend_name("query_");
+        let query_prepared_name = self.prepend_name("query_prepared_");
+        let query_one_name = self.prepend_name("query_one_");
+        let query_one_prepared_name = self.prepend_name("query_one_prepared_");
+        let query_opt_name = self.prepend_name("query_opt_");
+        let query_opt_prepared_name = self.prepend_name("query_opt_prepared_");
         let params_declr = self.params_declr();
         let params_query_ref = self.params_query_ref();
         let outputs_declr = self.outputs_declr();
@@ -433,12 +433,12 @@ impl Query {
                 fn #execute_name(&mut self #params_declr) -> Result<u64, postgres::Error>;
                 fn #execute_prepared_name(&mut self, stmt: &#Statement #params_declr)
                     -> Result<u64, postgres::Error>;
-                fn #queue_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error>;
-                fn #queue_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error>;
-                fn #queue_one_name(&mut self #params_declr) -> Result<(#outputs_declr), postgres::Error>;
-                fn #queue_one_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<(#outputs_declr), postgres::Error>;
-                fn #queue_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error>;
-                fn #queue_opt_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error>;
+                fn #query_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error>;
+                fn #query_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error>;
+                fn #query_one_name(&mut self #params_declr) -> Result<(#outputs_declr), postgres::Error>;
+                fn #query_one_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<(#outputs_declr), postgres::Error>;
+                fn #query_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error>;
+                fn #query_opt_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error>;
             }
 
             pub fn #convert_row(row: postgres::Row) -> Result<(#outputs_declr), postgres::Error> {
@@ -463,34 +463,34 @@ impl Query {
                 self.execute(&stmt.0, #params_query_ref)
             }
 
-            fn #queue_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error> {
+            fn #query_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error> {
                 let result: Result<Vec<_>, postgres::Error> =
                     self.query(#query, #params_query_ref)?.into_iter().map(#convert_row).collect();
                 result
             }
 
-            fn #queue_one_name(&mut self #params_declr) -> Result<(#outputs_declr), postgres::Error> {
+            fn #query_one_name(&mut self #params_declr) -> Result<(#outputs_declr), postgres::Error> {
                 Ok(#convert_row(self.query_one(#query, #params_query_ref)?)?)
             }
 
-            fn #queue_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error> {
+            fn #query_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Vec<(#outputs_declr)>, postgres::Error> {
                 let result: Result<Vec<_>, postgres::Error> =
                     self.query(&stmt.0, #params_query_ref)?.into_iter().map(#convert_row).collect();
                 result
             }
 
-            fn #queue_one_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<(#outputs_declr), postgres::Error> {
+            fn #query_one_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<(#outputs_declr), postgres::Error> {
                 Ok(#convert_row(self.query_one(&stmt.0, #params_query_ref)?)?)
             }
 
-            fn #queue_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error> {
+            fn #query_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error> {
                 match self.query_opt(#query, #params_query_ref)? {
                     None => Ok(None),
                     Some(x) => Ok(Some(#convert_row(x)?)),
                 }
             }
 
-            fn #queue_opt_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error> {
+            fn #query_opt_prepared_name(&mut self, stmt: &#Statement #params_declr) -> Result<Option<(#outputs_declr)>, postgres::Error> {
                 match self.query_opt(&stmt.0, #params_query_ref)? {
                     None => Ok(None),
                     Some(x) => Ok(Some(#convert_row(x)?)),
