@@ -34,8 +34,12 @@ fnsql::fnsql! {
            FROM pet
           WHERE id = $1
     "#}
-}
 
+    #[postgres, named, conststr=INSERT_PET_SQL]
+    insert_new_pet_const(id: i32, name: String, data: Option<Vec<u8>>) {
+        "INSERT INTO pet (id, name, data) VALUES (:id, :name, :data)"
+    }
+}
 
 #[derive(Debug)]
 struct Pet {
@@ -47,7 +51,8 @@ struct Pet {
 pub fn main() -> Result<(), postgres::Error> {
     let mut conn = fnsql::postgres::testing_client()?;
     conn.execute("SET search_path TO pg_temp", &[]).unwrap();
-    conn.execute("CREATE TYPE foo AS ENUM ('Bar', 'Baz')", &[]).unwrap();
+    conn.execute("CREATE TYPE foo AS ENUM ('Bar', 'Baz')", &[])
+        .unwrap();
 
     conn.execute_create_table_pet()?;
 
@@ -69,4 +74,13 @@ pub fn main() -> Result<(), postgres::Error> {
     conn.execute_prepared_insert_new_pet(&prep, &me.id, &me.name, &me.data)?;
 
     Ok(())
+}
+
+#[test]
+fn conststr_sql_transformed_for_postgres() {
+    println!("INSERT_PET_SQL = {}", INSERT_PET_SQL);
+    assert_eq!(
+        INSERT_PET_SQL,
+        "INSERT INTO pet (id, name, data) VALUES ($1, $2, $3)"
+    );
 }

@@ -118,15 +118,15 @@ extern crate proc_macro;
 use std::collections::HashMap;
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as Tokens;
+use proc_macro2::{Span, TokenStream as Tokens};
 use quote::{quote, ToTokens};
-use regex::{Regex, Captures};
+use regex::{Captures, Regex};
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    token, Ident, Token, LitStr,
+    token, Ident, LitStr, Token,
 };
 
 struct Queries {
@@ -157,6 +157,7 @@ struct Query {
     kind: Kind,
     test: Option<Vec<String>>,
     named: bool,
+    conststr: Option<String>,
 }
 
 impl Parse for Query {
@@ -164,6 +165,7 @@ impl Parse for Query {
         let mut kind = None;
         let mut test = None;
         let mut named = false;
+        let mut conststr = None;
 
         if input.peek(Token![#]) {
             let _: Token![#] = input.parse()?;
@@ -190,7 +192,10 @@ impl Parse for Query {
                     }
                     Attr::Named => {
                         named = true;
-                    },
+                    }
+                    Attr::ConstStr(v) => {
+                        conststr = Some(v);
+                    }
                 }
             }
         };
@@ -232,6 +237,7 @@ impl Parse for Query {
             kind,
             test,
             named,
+            conststr,
         })
     }
 }
@@ -385,9 +391,8 @@ impl Query {
                 .params
                 .iter()
                 .enumerate()
-                .map(|(idx, param)| {
-                    (format!("{}", param.name), idx)
-                }).collect();
+                .map(|(idx, param)| (format!("{}", param.name), idx))
+                .collect();
 
             query = String::from(RE.replace_all(&self.query.value(), |captures: &Captures| {
                 let c1 = captures.get(1).unwrap().as_str();
@@ -401,6 +406,11 @@ impl Query {
             query = self.query.value();
         };
         let query = LitStr::new(query.as_str(), self.query.span());
+
+        let const_str = self.conststr.as_ref().map(|name| {
+            let ident = Ident::new(name, Span::call_site());
+            quote! { pub const #ident: &str = #query; }
+        });
 
         #[cfg(feature = "prepare-cache")]
         let (prepare_cached_decl, prepare_cached_impl) = {
@@ -418,9 +428,7 @@ impl Query {
         };
 
         #[cfg(not(feature = "prepare-cache"))]
-        let (prepare_cached_decl, prepare_cached_impl) = {
-            (quote!{}, quote!{})
-        };
+        let (prepare_cached_decl, prepare_cached_impl) = { (quote! {}, quote! {}) };
 
         let defs = quote! {
             #[allow(non_camel_case_types)]
@@ -501,6 +509,7 @@ impl Query {
         let test_code = self.test_code();
 
         quote! {
+            #const_str
             #defs
 
             impl #Client for postgres::Client {
@@ -539,7 +548,13 @@ impl Query {
 
         let test_code = self.test_code();
 
+        let const_str = self.conststr.as_ref().map(|name| {
+            let ident = Ident::new(name, Span::call_site());
+            quote! { pub const #ident: &str = #query; }
+        });
+
         quote! {
+            #const_str
             #[allow(non_camel_case_types)]
             pub trait #conn_trait_name {
                 fn #prepare_name(&self) -> rusqlite::Result<#StatementType<'_>>;
@@ -712,26 +727,26 @@ impl Query {
         let name = syn::LitStr::new(&self.name.to_string(), self.name.span());
 
         let client_type = match self.kind {
-            Kind::Rusqlite => quote!{rusqlite::Connection},
-            Kind::PostgreSQL => quote!{postgres::Client},
+            Kind::Rusqlite => quote! {rusqlite::Connection},
+            Kind::PostgreSQL => quote! {postgres::Client},
         };
         let client_ref_type = match self.kind {
-            Kind::Rusqlite => quote!{&},
-            Kind::PostgreSQL => quote!{&mut},
+            Kind::Rusqlite => quote! {&},
+            Kind::PostgreSQL => quote! {&mut},
         };
         let ignore_error = match self.kind {
-            Kind::Rusqlite => quote!{Err(rusqlite::Error::ExecuteReturnedResults) => {}},
-            Kind::PostgreSQL => quote!{},
+            Kind::Rusqlite => quote! {Err(rusqlite::Error::ExecuteReturnedResults) => {}},
+            Kind::PostgreSQL => quote! {},
         };
         let error_type = match self.kind {
-            Kind::Rusqlite => quote!{rusqlite::Error},
-            Kind::PostgreSQL => quote!{postgres::Error},
+            Kind::Rusqlite => quote! {rusqlite::Error},
+            Kind::PostgreSQL => quote! {postgres::Error},
         };
         let open_client = match self.kind {
-            Kind::Rusqlite => quote!{
+            Kind::Rusqlite => quote! {
                 let conn = #client_type::open_in_memory()?;
             },
-            Kind::PostgreSQL => quote!{let mut conn = {
+            Kind::PostgreSQL => quote! {let mut conn = {
                 let mut conn = fnsql::postgres::testing_client().expect("unable to connect testing client");
                 conn.execute("SET search_path TO pg_temp", &[]).unwrap();
                 conn
@@ -839,7 +854,7 @@ impl Param {
 
         match query.kind {
             Kind::Rusqlite => quote! { (#specifier, &#name as &dyn rusqlite::ToSql) },
-            Kind::PostgreSQL => quote! { &#name as &(dyn postgres::types::ToSql + Sync) }
+            Kind::PostgreSQL => quote! { &#name as &(dyn postgres::types::ToSql + Sync) },
         }
     }
 }
@@ -848,6 +863,7 @@ enum Attr {
     Kind(Kind),
     Test(Vec<TestAttr>),
     Named,
+    ConstStr(String),
 }
 
 impl Parse for Attr {
@@ -874,6 +890,11 @@ impl Parse for Attr {
             };
 
             return Ok(Attr::Test(v));
+        }
+        if ident == "conststr" {
+            let _: Token![=] = input.parse()?;
+            let name: Ident = input.parse()?;
+            return Ok(Attr::ConstStr(name.to_string()));
         }
         panic!("unknown attribute {}", ident);
     }
@@ -908,7 +929,7 @@ impl Parse for TestAttr {
 ///
 /// ```ignore
 /// fnsql! {
-///     #[<sql-engine-type>, [OPTIONAL: test(with=[other-function-a, other-function-b...])]]
+///     #[<sql-engine-type>, [OPTIONAL: test(with=[other-function-a, other-function-b...])], [OPTIONAL: conststr=<const-name>]]
 ///     <function-name-a>(param1: type, param2: type...)
 ///          [OPTIONAL: -> [(col a type, col b type, ...)]]
 ///     {
@@ -927,6 +948,7 @@ impl Parse for TestAttr {
 /// - With `test(with=[...])`, you specify the quries that need execution for this
 ///   query to work.
 /// - The `named` attribute allows using named arguments, e.g. ':name' with `postgres` in additon to the default position-based arguments of '$1' '$2', etc.
+/// - The `conststr=<name>` attribute generates a `pub const <name>: &str = "SQL";` at the top level.
 
 #[proc_macro]
 pub fn fnsql(input: TokenStream) -> TokenStream {

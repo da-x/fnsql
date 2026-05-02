@@ -28,12 +28,19 @@ fnsql::fnsql! {
         "UPDATE pet SET data = :data WHERE name = :name"
     }
 
-    #[rusqlite, test(with=[create_table_pet])]
-    get_pet_count(pet_id: i64) -> [(i64)] {r#"
-         SELECT count(*)
-           FROM pet
-          WHERE id = :pet_id
-    "#}
+    #[rusqlite, test(with=[create_table_pet]), conststr=GET_PET_COUNT_SQL]
+    get_pet_count_const(pet_id: i64) -> [(i64)] {
+        "SELECT count(*) FROM pet WHERE id = :pet_id"
+    }
+}
+
+#[test]
+fn conststr_sql_is_correct() {
+    println!("GET_PET_COUNT_SQL = {}", GET_PET_COUNT_SQL);
+    assert_eq!(
+        GET_PET_COUNT_SQL,
+        "SELECT count(*) FROM pet WHERE id = :pet_id"
+    );
 }
 
 #[derive(Debug)]
