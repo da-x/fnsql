@@ -6,17 +6,17 @@
 //! query.
 //!
 //! It's a very simple implementation that doesn't force any schema or ORM down
-//! your throat, so if you are already using the `rusqlite` or `postgres` crates,
+//! your throat, so if you are already using the `sqlx` or `postgres` crates,
 //! you can gradually replace your type-less queries with the type-ful wrappers,
 //! or migrate from an opinionated ORM.
 //!
 //! The way to generate these wrappers is to specify input and output types for
 //! each one of the queries. For example, consider the following definitions
-//! specified with `fnsql`, based on the `rusqlite` example:
+//! specified with `fnsql`, based on the `sqlx_sqlite` backend:
 //!
-//! ```rust
+//! ```rust,no_run
 //! fnsql::fnsql! {
-//!     #[rusqlite, test]
+//!     #[sqlx_sqlite, test]
 //!     create_table_pet() {
 //!         "CREATE TABLE pet (
 //!               id      INTEGER PRIMARY KEY,
@@ -25,57 +25,33 @@
 //!         )"
 //!     }
 //!
-//!     #[rusqlite, test(with=[create_table_pet])]
+//!     #[sqlx_sqlite, test(with=[create_table_pet])]
 //!     insert_new_pet(name: String, data: Option<Vec<u8>>) {
 //!         "INSERT INTO pet (name, data) VALUES (:name, :data)"
 //!     }
 //!
-//!     #[rusqlite, test(with=[create_table_pet])]
-//!     get_pet_id_data(name: Option<String>) -> [(i32, Option<Vec<u8>>, String)] {
-//!         "SELECT id, data, name FROM pet WHERE pet.name = :name"
+//!     #[sqlx_sqlite, test(with=[create_table_pet])]
+//!     get_pet_id_data(name: Option<String>) -> [(i32, Option<Vec<u8>>)] {
+//!         "SELECT id, data FROM pet WHERE pet.name = :name"
 //!     }
 //! }
 //! ```
 //!
-//! The definitions can be used as such (commented out is how the previous
-//! type-less interfaces were used):
+//! The definitions can be used as such:
 //!
-//! ```rust ignore
-//! let mut conn = rusqlite::Connection::open_in_memory()?;
+//! ```rust,no_run
+//! # async fn example() -> Result<(), sqlx::Error> {
+//! let pool = sqlx::SqlitePool::connect("sqlite::memory:").await?;
 //!
-//! conn.execute_create_table_pet()?;
-//! // conn.execute(
-//! //    "CREATE TABLE pet (
-//! //               id              INTEGER PRIMARY KEY,
-//! //               name            TEXT NOT NULL,
-//! //               data            BLOB
-//! //               )",
-//! //     [],
-//! // )?;
+//! pool.execute_create_table_pet().await?;
 //!
-//! conn.execute_insert_new_pet(&me.name, &me.data)?;
-//! // conn.execute(
-//! //     "INSERT INTO pet (name, data) VALUES (?1, ?2)",
-//! //     params![me.name, me.data],
-//! // )?;
+//! pool.execute_insert_new_pet(&"Max".to_string(), &None).await?;
 //!
-//! let mut stmt = conn.prepare_get_pet_id_data()?;
-//! // let mut stmt = conn.prepare("SELECT id, data, name FROM pet WHERE pet.name = :name")?;
-//!
-//! let pet_iter = stmt.query_map(&Some("Max".to_string()), |id, data, name| {
-//!     Ok::<_, rusqlite::Error>(Pet {
-//!         id,
-//!         data,
-//!         name,
-//!     })
-//! })?;
-//! // let pet_iter = stmt.query_map([(":name", "Max".to_string())], |row| {
-//! //     Ok(Pet {
-//! //         id: row.get(0)?,
-//! //         name: row.get(1)?,
-//! //         data: row.get(2)?,
-//! //     })
-//! // })?;
+//! let rows = pool.query_get_pet_id_data(&Some("Max".to_string())).await?;
+//! for (id, data) in rows {
+//!     println!("Found pet id={:?}, data={:?}", id, data);
+//! }
+//! # Ok(()) }
 //! ```
 //!
 //! ## Technical discussion
@@ -111,7 +87,7 @@
 //!
 //!  * Though it <i>does</i> provide auto-generated tests for validating queries in `cargo test`,
 //!    it does not do any compile-time validation based on the SQL query string.
-//!  * It only supports `rusqlite` and `postgres` for now.
+//!  * It supports `sqlx_sqlite` and `postgres`.
 
 extern crate proc_macro;
 
@@ -145,7 +121,7 @@ impl Parse for Queries {
 }
 
 enum Kind {
-    Rusqlite,
+    SqlxSqlite,
     PostgreSQL,
 }
 
@@ -202,7 +178,7 @@ impl Parse for Query {
 
         let name = input.parse()?;
         let kind = match kind {
-            None => panic!("unknown SQL type. Supported: rusqlite"),
+            None => panic!("unknown SQL type. Supported: sqlx_sqlite, postgres"),
             Some(kind) => kind,
         };
         let content;
@@ -257,20 +233,6 @@ impl Query {
         quote! { #(#list),* }
     }
 
-    fn outputs_row_get_numbered(&self) -> Tokens {
-        let list: Vec<_> = self
-            .outputs
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                let i = syn::LitInt::new(&format!("{}", i), self.name.span());
-                quote! {row.get(#i)?}
-            })
-            .collect();
-
-        quote! { #(#list),* }
-    }
-
     fn outputs_row_try_get_numbered(&self) -> Tokens {
         let list: Vec<_> = self
             .outputs
@@ -285,9 +247,19 @@ impl Query {
         quote! { #(#list),* }
     }
 
-    fn outputs_mapped_row_closure(&self) -> Tokens {
-        let list = self.outputs_row_get_numbered();
-        quote! { Ok(map(#list)) }
+    fn outputs_row_try_get_numbered_typed(&self) -> Tokens {
+        let list: Vec<_> = self
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(i, out)| {
+                let i = syn::LitInt::new(&format!("{}", i), self.name.span());
+                let ttype = &out.ttype;
+                quote! {{ use sqlx::Row; row.try_get::<#ttype, _>(#i)? }}
+            })
+            .collect();
+
+        quote! { #(#list),* }
     }
 
     fn params_arbitrary(&self) -> (Tokens, Tokens) {
@@ -319,15 +291,6 @@ impl Query {
         (quote! { #(#gen_lets);* }, quote! { #(#params),* })
     }
 
-    fn params_query(&self) -> Tokens {
-        let list: Vec<_> = self.params.iter().map(|x| x.expand_query(self)).collect();
-        if list.len() == 0 {
-            quote! { [] }
-        } else {
-            quote! { &[#(#list),*] }
-        }
-    }
-
     fn params_query_ref(&self) -> Tokens {
         let list: Vec<_> = self.params.iter().map(|x| x.expand_query(self)).collect();
         if list.len() == 0 {
@@ -337,25 +300,9 @@ impl Query {
         }
     }
 
-    fn params_relay(&self) -> Tokens {
-        let list: Vec<_> = self
-            .params
-            .iter()
-            .map(|x| {
-                let name = &x.name;
-                quote! { #name }
-            })
-            .collect();
-        if list.len() == 0 {
-            quote! {}
-        } else {
-            quote! { #(#list),*, }
-        }
-    }
-
     fn expand(&self) -> Tokens {
         match self.kind {
-            Kind::Rusqlite => self.sqlite_expand(),
+            Kind::SqlxSqlite => self.sqlx_sqlite_expand(),
             Kind::PostgreSQL => self.postgres_expand(),
         }
     }
@@ -368,6 +315,7 @@ impl Query {
         let execute_name = self.prepend_name("execute_");
         let execute_prepared_name = self.prepend_name("execute_prepared_");
         let prepare_name = self.prepend_name("prepare_");
+        #[allow(unused_variables)]
         let prepare_cached_name = self.prepend_name("prepare_cached_");
         let convert_row = self.prepend_name("convert_row_");
         let query_name = self.prepend_name("query_");
@@ -524,194 +472,88 @@ impl Query {
         }
     }
 
-    fn sqlite_expand(&self) -> Tokens {
-        let conn_trait_name = self.prepend_name("Connection_");
+    fn sqlx_bind_chain(&self) -> Tokens {
+        let binds: Vec<_> = self.params.iter().map(|p| {
+            let name = &p.name;
+            quote! { .bind(#name) }
+        }).collect();
+        quote! { #(#binds)* }
+    }
+
+    fn sqlx_sqlite_expand(&self) -> Tokens {
         #[allow(non_snake_case)]
-        let StatementType = self.prepend_name("Statement_");
-        #[allow(non_snake_case)]
-        let CachedStatementType = self.prepend_name("CachedStatement_");
-        #[allow(non_snake_case)]
-        let MappedRows = self.prepend_name("MappedRows_");
-        #[allow(non_snake_case)]
-        let Rows = self.prepend_name("Rows_");
-        let prepare_name = self.prepend_name("prepare_");
-        let prepare_cached_name = self.prepend_name("prepare_cached_");
+        let PoolTrait = self.prepend_name("Pool_");
         let execute_name = self.prepend_name("execute_");
-        let query_row_name = self.prepend_name("query_row_");
+        let convert_row = self.prepend_name("convert_row_");
+        let query_name = self.prepend_name("query_");
+        let query_one_name = self.prepend_name("query_one_");
+        let query_opt_name = self.prepend_name("query_opt_");
         let params_declr = self.params_declr();
         let outputs_declr = self.outputs_declr();
-        let row_closure = self.outputs_row_get_numbered();
-        let mapped_row_closure = self.outputs_mapped_row_closure();
-        let params_query = self.params_query();
-        let params_relay = self.params_relay();
-        let query = &self.query;
+        let row_try_get_numbered = self.outputs_row_try_get_numbered_typed();
+        let bind_chain = self.sqlx_bind_chain();
 
-        let test_code = self.test_code();
+        // Transform :name placeholders to $1, $2, ... for sqlx sqlite
+        lazy_static::lazy_static! {
+            static ref RE: Regex = Regex::new(":([A-Za-z_][_A-Za-z0-9]*)($|[^_A-Za-z0-9])").unwrap();
+        }
+        let params: HashMap<_, _> = self
+            .params
+            .iter()
+            .enumerate()
+            .map(|(idx, param)| (format!("{}", param.name), idx))
+            .collect();
+        let query_str = String::from(RE.replace_all(&self.query.value(), |captures: &Captures| {
+            let c1 = captures.get(1).unwrap().as_str();
+            let c2 = captures.get(2).unwrap().as_str();
+            match params.get(c1) {
+                Some(idx) => format!("${}{}", idx + 1, c2),
+                None => format!("{}{}", c1, c2),
+            }
+        }));
+        let query = LitStr::new(&query_str, self.query.span());
 
         let const_str = self.conststr.as_ref().map(|name| {
             let ident = Ident::new(name, Span::call_site());
             quote! { pub const #ident: &str = #query; }
         });
 
+        let test_code = self.test_code();
+
         quote! {
             #const_str
             #[allow(non_camel_case_types)]
-            pub trait #conn_trait_name {
-                fn #prepare_name(&self) -> rusqlite::Result<#StatementType<'_>>;
-                fn #prepare_cached_name(&self) -> rusqlite::Result<#CachedStatementType<'_>>;
-                fn #execute_name(&self #params_declr) -> rusqlite::Result<usize>;
-                fn #query_row_name<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
-                where
-                    F: FnMut(#outputs_declr) -> T;
+            pub trait #PoolTrait {
+                async fn #execute_name(&self #params_declr) -> Result<u64, sqlx::Error>;
+                async fn #query_name(&self #params_declr) -> Result<Vec<(#outputs_declr)>, sqlx::Error>;
+                async fn #query_one_name(&self #params_declr) -> Result<(#outputs_declr), sqlx::Error>;
+                async fn #query_opt_name(&self #params_declr) -> Result<Option<(#outputs_declr)>, sqlx::Error>;
             }
 
-            impl #conn_trait_name for rusqlite::Connection {
-                fn #prepare_name(&self) -> rusqlite::Result<#StatementType<'_>> {
-                    self.prepare(#query).map(#StatementType)
-                }
-
-                fn #prepare_cached_name(&self) -> rusqlite::Result<#CachedStatementType<'_>> {
-                    self.prepare_cached(#query).map(#CachedStatementType)
-                }
-
-                fn #execute_name(&self #params_declr) -> rusqlite::Result<usize> {
-                    self.execute(#query, #params_query)
-                }
-
-                fn #query_row_name<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
-                where
-                    F: FnMut(#outputs_declr) -> T,
-                {
-                    let mut stmt = self.#prepare_name()?;
-                    stmt.query_row(#params_relay f)
-                }
+            pub fn #convert_row(row: sqlx::sqlite::SqliteRow) -> Result<(#outputs_declr), sqlx::Error> {
+                Ok((#row_try_get_numbered))
             }
 
-            #[allow(non_camel_case_types)]
-            pub struct #MappedRows<'stmt, F> {
-                rows: rusqlite::Rows<'stmt>,
-                map: F,
-            }
-
-            impl<'stmt, T, F> #MappedRows<'stmt, F>
-            where
-                F: FnMut(#outputs_declr) -> T
-            {
-                pub(crate) fn new(rows: rusqlite::Rows<'stmt>, f: F) -> Self {
-                    Self { rows, map: f }
-                }
-            }
-
-            impl<'stmt, T, F> Iterator for #MappedRows<'stmt, F>
-            where
-                F: FnMut(#outputs_declr) -> T
-            {
-                type Item = rusqlite::Result<T>;
-
-                fn next(&mut self) -> Option<rusqlite::Result<T>> {
-                    let map = &mut self.map;
-                    self.rows
-                        .next()
-                        .transpose()
-                        .map(|row_result| {
-                            row_result.and_then(|row| {
-                                #mapped_row_closure
-                            })
-                        })
-                }
-            }
-
-            #[allow(non_camel_case_types)]
-            pub struct #Rows<'stmt> {
-                rows: rusqlite::Rows<'stmt>,
-            }
-
-            impl<'stmt> #Rows<'stmt> {
-                pub(crate) fn new(rows: rusqlite::Rows<'stmt>) -> Self {
-                    Self { rows }
-                }
-            }
-
-            impl<'stmt> Iterator for #Rows<'stmt> {
-                type Item = rusqlite::Result<(#outputs_declr)>;
-
-                fn next(&mut self) -> Option<Self::Item> {
-                    self.rows
-                        .next()
-                        .transpose()
-                        .map(|row_result| {
-                            row_result.and_then(|row| {
-                                Ok((#row_closure))
-                            })
-                        })
-                }
-            }
-
-            #[allow(non_camel_case_types)]
-            pub struct #StatementType<'a>(pub rusqlite::Statement<'a>);
-
-            impl<'a> #StatementType<'a> {
-                fn query_map<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#MappedRows<'_, F>>
-                where
-                    F: FnMut(#outputs_declr) -> T,
-                {
-                    let rows = self.0.query(#params_query)?;
-                    Ok(#MappedRows::new(rows, f))
+            impl #PoolTrait for sqlx::SqlitePool {
+                async fn #execute_name(&self #params_declr) -> Result<u64, sqlx::Error> {
+                    sqlx::query(#query)#bind_chain.execute(self).await.map(|r| r.rows_affected())
                 }
 
-                fn query_row<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
-                where
-                    F: FnMut(#outputs_declr) -> T,
-                {
-                    let rows = self.query_map(#params_relay f)?;
-                    for item in rows {
-                        return Ok(item?);
+                async fn #query_name(&self #params_declr) -> Result<Vec<(#outputs_declr)>, sqlx::Error> {
+                    let rows = sqlx::query(#query)#bind_chain.fetch_all(self).await?;
+                    rows.into_iter().map(#convert_row).collect()
+                }
+
+                async fn #query_one_name(&self #params_declr) -> Result<(#outputs_declr), sqlx::Error> {
+                    let row = sqlx::query(#query)#bind_chain.fetch_one(self).await?;
+                    #convert_row(row)
+                }
+
+                async fn #query_opt_name(&self #params_declr) -> Result<Option<(#outputs_declr)>, sqlx::Error> {
+                    match sqlx::query(#query)#bind_chain.fetch_optional(self).await? {
+                        None => Ok(None),
+                        Some(row) => Ok(Some(#convert_row(row)?)),
                     }
-                    Err(rusqlite::Error::QueryReturnedNoRows)
-                }
-
-                fn query(&mut self #params_declr) -> rusqlite::Result<#Rows<'_>> {
-                    let rows = self.0.query(#params_query)?;
-                    Ok(#Rows::new(rows))
-                }
-
-                fn execute(&mut self #params_declr) -> rusqlite::Result<()> {
-                    self.0.execute(#params_query)?;
-                    Ok(())
-                }
-            }
-
-            #[allow(non_camel_case_types)]
-            pub struct #CachedStatementType<'a>(pub rusqlite::CachedStatement<'a>);
-
-            impl<'a> #CachedStatementType<'a> {
-                fn query_map<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<#MappedRows<'_, F>>
-                where
-                    F: FnMut(#outputs_declr) -> T,
-                {
-                    let rows = self.0.query(#params_query)?;
-                    Ok(#MappedRows::new(rows, f))
-                }
-
-                fn query_row<F, T>(&mut self #params_declr, f: F) -> rusqlite::Result<T>
-                where
-                    F: FnMut(#outputs_declr) -> T,
-                {
-                    let rows = self.query_map(#params_relay f)?;
-                    for item in rows {
-                        return Ok(item?);
-                    }
-                    Err(rusqlite::Error::QueryReturnedNoRows)
-                }
-
-                fn query(&mut self #params_declr) -> rusqlite::Result<#Rows<'_>> {
-                    let rows = self.0.query(#params_query)?;
-                    Ok(#Rows::new(rows))
-                }
-
-                fn execute(&mut self #params_declr) -> rusqlite::Result<()> {
-                    self.0.execute(#params_query)?;
-                    Ok(())
                 }
             }
 
@@ -727,24 +569,24 @@ impl Query {
         let name = syn::LitStr::new(&self.name.to_string(), self.name.span());
 
         let client_type = match self.kind {
-            Kind::Rusqlite => quote! {rusqlite::Connection},
+            Kind::SqlxSqlite => quote! {sqlx::SqlitePool},
             Kind::PostgreSQL => quote! {postgres::Client},
         };
         let client_ref_type = match self.kind {
-            Kind::Rusqlite => quote! {&},
+            Kind::SqlxSqlite => quote! {&},
             Kind::PostgreSQL => quote! {&mut},
         };
         let ignore_error = match self.kind {
-            Kind::Rusqlite => quote! {Err(rusqlite::Error::ExecuteReturnedResults) => {}},
+            Kind::SqlxSqlite => quote! {},
             Kind::PostgreSQL => quote! {},
         };
         let error_type = match self.kind {
-            Kind::Rusqlite => quote! {rusqlite::Error},
+            Kind::SqlxSqlite => quote! {sqlx::Error},
             Kind::PostgreSQL => quote! {postgres::Error},
         };
         let open_client = match self.kind {
-            Kind::Rusqlite => quote! {
-                let conn = #client_type::open_in_memory()?;
+            Kind::SqlxSqlite => quote! {
+                let conn = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
             },
             Kind::PostgreSQL => quote! {let mut conn = {
                 let mut conn = fnsql::postgres::testing_client().expect("unable to connect testing client");
@@ -757,45 +599,91 @@ impl Query {
             let depends = depends.iter().map(|name| {
                 let parent_testsetup_name =
                     Ident::new(&format!("testsetup_{}", name), self.name.span());
-                quote! {
-                    #parent_testsetup_name(uns, deps, conn)?;
+                match self.kind {
+                    Kind::SqlxSqlite => quote! {
+                        #parent_testsetup_name(uns, deps, conn).await?;
+                    },
+                    _ => quote! {
+                        #parent_testsetup_name(uns, deps, conn)?;
+                    },
                 }
             });
-            quote! {
-                #[cfg(test)]
-                fn #testsetup_name(
-                    uns: &mut arbitrary::Unstructured,
-                    deps: &mut std::collections::HashSet<&'static str>,
-                    conn: #client_ref_type #client_type) -> Result<(), #error_type>
-                {
-                    if !deps.insert(#name) {
-                        return Ok(());
-                    }
 
-                    #(#depends);*
-
-                    #params_arbit_prep;
+            let exec_call = match self.kind {
+                Kind::SqlxSqlite => quote! {
+                    let r = conn.#execute_name(#params_arbit).await;
+                },
+                _ => quote! {
                     let r = conn.#execute_name(#params_arbit);
-                    match r {
-                        Ok(_) => {}
-                        #ignore_error
-                        Err(err) => {
-                            eprintln!("{:?}", err);
-                            Err(err)?;
-                        },
-                    }
-                    Ok(())
+                },
+            };
+
+            let testsetup_body_inner = quote! {
+                if !deps.insert(#name) {
+                    return Ok(());
                 }
 
-                #[test]
-                fn #test_name() -> Result<(), #error_type> {
-                    #open_client;
-                    let mut deps = std::collections::HashSet::new();
-                    let raw_data: &[u8] = &[1, 2, 3];
-                    let mut unstructured = arbitrary::Unstructured::new(raw_data);
+                #(#depends);*
 
-                    #testsetup_name(&mut unstructured, &mut deps, #client_ref_type conn)?;
-                    Ok(())
+                #params_arbit_prep;
+                #exec_call
+                match r {
+                    Ok(_) => {}
+                    #ignore_error
+                    Err(err) => {
+                        eprintln!("{:?}", err);
+                        Err(err)?;
+                    },
+                }
+                Ok(())
+            };
+
+            match self.kind {
+                Kind::SqlxSqlite => {
+                    quote! {
+                        #[cfg(test)]
+                        async fn #testsetup_name(
+                            uns: &mut arbitrary::Unstructured<'_>,
+                            deps: &mut std::collections::HashSet<&'static str>,
+                            conn: #client_ref_type #client_type) -> Result<(), #error_type>
+                        {
+                            #testsetup_body_inner
+                        }
+
+                        #[tokio::test]
+                        async fn #test_name() -> Result<(), #error_type> {
+                            #open_client
+                            let mut deps = std::collections::HashSet::new();
+                            let raw_data: &[u8] = &[1, 2, 3];
+                            let mut unstructured = arbitrary::Unstructured::new(raw_data);
+
+                            #testsetup_name(&mut unstructured, &mut deps, #client_ref_type conn).await?;
+                            Ok(())
+                        }
+                    }
+                }
+                _ => {
+                    quote! {
+                        #[cfg(test)]
+                        fn #testsetup_name(
+                            uns: &mut arbitrary::Unstructured<'_>,
+                            deps: &mut std::collections::HashSet<&'static str>,
+                            conn: #client_ref_type #client_type) -> Result<(), #error_type>
+                        {
+                            #testsetup_body_inner
+                        }
+
+                        #[test]
+                        fn #test_name() -> Result<(), #error_type> {
+                            #open_client;
+                            let mut deps = std::collections::HashSet::new();
+                            let raw_data: &[u8] = &[1, 2, 3];
+                            let mut unstructured = arbitrary::Unstructured::new(raw_data);
+
+                            #testsetup_name(&mut unstructured, &mut deps, #client_ref_type conn)?;
+                            Ok(())
+                        }
+                    }
                 }
             }
         } else {
@@ -850,10 +738,9 @@ impl Param {
 
     fn expand_query(&self, query: &Query) -> Tokens {
         let name = &self.name;
-        let specifier = syn::LitStr::new(&format!(":{}", name), name.span());
 
         match query.kind {
-            Kind::Rusqlite => quote! { (#specifier, &#name as &dyn rusqlite::ToSql) },
+            Kind::SqlxSqlite => unreachable!("sqlx uses sqlx_bind_chain"),
             Kind::PostgreSQL => quote! { &#name as &(dyn postgres::types::ToSql + Sync) },
         }
     }
@@ -869,8 +756,8 @@ enum Attr {
 impl Parse for Attr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let ident: Ident = input.parse()?;
-        if ident == "rusqlite" {
-            return Ok(Attr::Kind(Kind::Rusqlite));
+        if ident == "sqlx_sqlite" {
+            return Ok(Attr::Kind(Kind::SqlxSqlite));
         }
         if ident == "postgres" {
             return Ok(Attr::Kind(Kind::PostgreSQL));
@@ -943,7 +830,7 @@ impl Parse for TestAttr {
 /// **For examples see the root doc of the `fnsql` crate.**
 ///
 /// - Return type is optional, and only meaningful for SQL operations that return row data.
-/// - sql-engine-type: supported backends: `rusqlite` and `postgres`.
+/// - sql-engine-type: supported backends: `sqlx_sqlite` and `postgres`.
 /// - Testing is optional - you have to specific the `test` attribute for it.
 /// - With `test(with=[...])`, you specify the quries that need execution for this
 ///   query to work.

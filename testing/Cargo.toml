@@ -5,8 +5,9 @@ edition = "2021"
 
 [dependencies]
 fnsql = { version = "*", features = ["all"] }
-rusqlite = "0.26"
 postgres = "0.19"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "uuid", "chrono"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }

@@ -1,6 +1,6 @@
 [package]
 name = "fnsql"
-version = "0.2.8"
+version = "0.3.0"
 edition = "2021"
 keywords = ["sql", "proc_macro", "procmacro"]
 license = "MIT/Apache-2.0"
@@ -13,12 +13,13 @@ include = ["Cargo.toml", "src/**/*.rs", "src/**/*.yml", "src/**/*.sh", "crates-i
 
 [features]
 default = []
-all = ["with-rusqlite", "with-postgres", "prepare-cache"]
-with-rusqlite = ["fnsql-macro/with-postgres"]
-with-postgres = ["fnsql-macro/with-rusqlite", "postgres", "tempdir"]
+all = ["with-sqlx-sqlite", "with-postgres", "prepare-cache"]
+with-sqlx-sqlite = ["fnsql-macro/with-sqlx-sqlite", "sqlx"]
+with-postgres = ["fnsql-macro/with-postgres", "postgres", "tempdir"]
 prepare-cache = ["fnsql-macro/prepare-cache"]
 
 [dependencies]
-fnsql-macro = "0.2.8"
+fnsql-macro = "0.3.0"
 tempdir = { version = "0.3", optional = true }
 postgres = { version = "0.19", optional = true }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "uuid", "chrono"], optional = true }

@@ -1,6 +1,6 @@
 [package]
 name = "fnsql-macro"
-version = "0.2.8"
+version = "0.3.0"
 edition = "2021"
 keywords = ["sql", "proc_macro", "procmacro"]
 license = "MIT/Apache-2.0"
@@ -16,8 +16,8 @@ proc-macro = true
 
 [features]
 default = []
-all = ["with-rusqlite", "with-postgres", "prepare-cache"]
-with-rusqlite = []
+all = ["with-sqlx-sqlite", "with-postgres", "prepare-cache"]
+with-sqlx-sqlite = []
 with-postgres = []
 prepare-cache = []
 
@@ -29,6 +29,7 @@ syn = "1.0"
 regex = "1.5"
 
 [dev-dependencies]
-rusqlite = "0.26.3"
-fnsql = "0.2.8"
+fnsql = { version = "0.3.0", features = ["with-sqlx-sqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "uuid", "chrono"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 arbitrary = { version = "1", features = ["derive"] }

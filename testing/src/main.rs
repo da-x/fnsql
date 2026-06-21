@@ -1,9 +1,10 @@
 extern crate postgres as crate_postgres;
 
-mod sqlite;
+mod sqlx_sqlite;
 mod postgres;
 
-fn main() {
-    sqlite::main().unwrap();
+#[tokio::main]
+async fn main() {
+    sqlx_sqlite::main().await.unwrap();
     postgres::main().unwrap();
 }
