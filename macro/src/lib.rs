@@ -1,18 +1,15 @@
-//! The `fnsql` crate provides simple type-safe optional wrappers around SQL
-//! queries. Instead of calling type-less `.query()` and `.execute()`, you call to
-//! auto-generated unique wrappers that are strongly typed, `.query_<name>()` and
-//! `.execute_<name>()`. However, you manually specify the input and output types,
-//! but only once, with the query, and in separation with the code that uses the
-//! query.
+//! The `fnsql` crate provides simple type-safe wrappers around SQL queries.
+//! Instead of calling type-less `.query()` and `.execute()`, you call auto-generated
+//! unique wrappers that are strongly typed: `.query_<name>()` and `.execute_<name>()`.
+//! You manually specify the input and output types, but only once, with the query,
+//! in separation from the code that uses the query.
 //!
 //! It's a very simple implementation that doesn't force any schema or ORM down
 //! your throat, so if you are already using the `sqlx` or `postgres` crates,
 //! you can gradually replace your type-less queries with the type-ful wrappers,
 //! or migrate from an opinionated ORM.
 //!
-//! The way to generate these wrappers is to specify input and output types for
-//! each one of the queries. For example, consider the following definitions
-//! specified with `fnsql`, based on the `sqlx_sqlite` backend:
+//! ## Quick start (sqlx_sqlite)
 //!
 //! ```rust,no_run
 //! fnsql::fnsql! {
@@ -37,57 +34,149 @@
 //! }
 //! ```
 //!
-//! The definitions can be used as such:
+//! The generated methods are extension methods on `sqlx::SqlitePool`:
 //!
 //! ```rust,no_run
 //! # async fn example() -> Result<(), sqlx::Error> {
 //! let pool = sqlx::SqlitePool::connect("sqlite::memory:").await?;
 //!
+//! // DDL/DML — returns rows affected
 //! pool.execute_create_table_pet().await?;
-//!
 //! pool.execute_insert_new_pet(&"Max".to_string(), &None).await?;
 //!
+//! // Query returning multiple rows as Vec of typed tuples
 //! let rows = pool.query_get_pet_id_data(&Some("Max".to_string())).await?;
 //! for (id, data) in rows {
 //!     println!("Found pet id={:?}, data={:?}", id, data);
 //! }
+//!
+//! // Query returning exactly one row
+//! let (id, data) = pool.query_one_get_pet_id_data(&Some("Max".to_string())).await?;
+//!
+//! // Query that may return zero or one row
+//! let row = pool.query_opt_get_pet_id_data(&Some("Nonexistent".to_string())).await?;
 //! # Ok(()) }
 //! ```
 //!
-//! ## Technical discussion
+//! ## Quick start (postgres)
 //!
-//! The idea with this crate is to allow direct SQL usage but never use inline
-//! queries or have type inference at the call-site. Instead, we declare each query
-//! on top-level, giving each a name and designated accessor methods that derive
-//! from the name.
+//! For postgres, named parameters are transformed to positional `$1`, `$2`, etc.
+//! when the `named` attribute is used:
 //!
-//! - The types of named variables are give in a Rust-like syntax.
-//! - The type of the returned row is also provided.
-//! - `fnsql` does not make an assurances to make sure the types match the query,
-//!   you will discover it with `cargo test` and no additional code.
-//! - `fnsql` writes the tests for each of the queries.  - `Arbitrary` is used to
-//!   generate parameter values.
-//! - If testing one query depend on another, you can specify that with `test(with=[..])`.
+//! ```rust,no_run
+//! fnsql::fnsql! {
+//!     #[postgres]
+//!     create_table_pet() {
+//!         "CREATE TABLE pet (id SERIAL PRIMARY KEY, name TEXT NOT NULL)"
+//!     }
+//!
+//!     #[postgres, named]
+//!     insert_new_pet(id: i32, name: String) {
+//!         "INSERT INTO pet (id, name) VALUES (:id, :name)"
+//!     }
+//! }
+//! ```
+//!
+//! Generated methods are extension methods on `postgres::Client` and
+//! `postgres::Transaction<'a>`, with both direct and prepared variants:
+//!
+//! ```rust,no_run
+//! # fn example(conn: &mut postgres::Client) -> Result<(), postgres::Error> {
+//! conn.execute_create_table_pet()?;
+//! conn.execute_insert_new_pet(&1, &"Max".to_string())?;
+//!
+//! // Prepared statement variant
+//! let prep = conn.prepare_insert_new_pet()?;
+//! conn.execute_prepared_insert_new_pet(&prep, &2, &"Rex".to_string())?;
+//! # Ok(()) }
+//! ```
+//!
+//! ## Generated API
+//!
+//! ### sqlx_sqlite (`sqlx::SqlitePool`)
+//!
+//! For each query `<name>(p1: T1, p2: T2) -> [(O1, O2)]`, the following async
+//! methods are generated on `sqlx::SqlitePool`:
+//!
+//! | Method | Return Type | Description |
+//! |--------|------------|-------------|
+//! | `execute_<name>(&self, &p1, &p2)` | `Result<u64, sqlx::Error>` | Execute, returns rows affected |
+//! | `query_<name>(&self, &p1, &p2)` | `Result<Vec<(O1, O2)>, sqlx::Error>` | Fetch all matching rows |
+//! | `query_one_<name>(&self, &p1, &p2)` | `Result<(O1, O2), sqlx::Error>` | Fetch exactly one row |
+//! | `query_opt_<name>(&self, &p1, &p2)` | `Result<Option<(O1, O2)>, sqlx::Error>` | Fetch zero or one row |
+//!
+//! Named parameters in the SQL (`:name`) are automatically transformed to
+//! positional `$N` placeholders at compile time.
+//!
+//! A `convert_row_<name>(row: SqliteRow) -> Result<(O1, O2), sqlx::Error>`
+//! function is also generated for manual row conversion.
+//!
+//! ### postgres (`postgres::Client` / `postgres::Transaction<'a>`)
+//!
+//! For each query `<name>(p1: T1, p2: T2) -> [(O1, O2)]`, the following methods
+//! are generated on both `postgres::Client` and `postgres::Transaction<'a>`:
+//!
+//! | Method | Return Type | Description |
+//! |--------|------------|-------------|
+//! | `execute_<name>(&mut self, &p1, &p2)` | `Result<u64, postgres::Error>` | Execute directly |
+//! | `prepare_<name>(&mut self)` | `Result<<name>Statement_, postgres::Error>` | Prepare statement |
+//! | `execute_prepared_<name>(&mut self, stmt, &p1, &p2)` | `Result<u64, postgres::Error>` | Execute prepared |
+//! | `query_<name>(&mut self, &p1, &p2)` | `Result<Vec<(O1, O2)>, postgres::Error>` | Fetch all rows |
+//! | `query_prepared_<name>(&mut self, stmt, &p1, &p2)` | `Result<Vec<(O1, O2)>, postgres::Error>` | Fetch all, prepared |
+//! | `query_one_<name>(&mut self, &p1, &p2)` | `Result<(O1, O2), postgres::Error>` | Fetch one row |
+//! | `query_one_prepared_<name>(&mut self, stmt, &p1, &p2)` | `Result<(O1, O2), postgres::Error>` | Fetch one, prepared |
+//! | `query_opt_<name>(&mut self, &p1, &p2)` | `Result<Option<(O1, O2)>, postgres::Error>` | Fetch opt row |
+//! | `query_opt_prepared_<name>(&mut self, stmt, &p1, &p2)` | `Result<Option<(O1, O2)>, postgres::Error>` | Fetch opt, prepared |
+//!
+//! With the `prepare-cache` feature enabled, an additional `prepare_cached_<name>()`
+//! method is available that uses `fnsql::postgres::Cache`.
+//!
+//! ## Attributes
+//!
+//! Each query declaration starts with attributes in square brackets:
 //!
 //! ```text
-//! running 3 tests
-//! test auto_create_table_pet ... ok
-//! test auto_insert_new_pet ... ok
-//! test auto_get_pet_id_data ... ok
+//! #[<backend>, <attr2>, <attr3>, ...]
 //! ```
 //!
-//! The following is for allowing generated query tests to compile:
+//! **Backend (required, exactly one):**
+//! - `sqlx_sqlite` — generates async methods on `sqlx::SqlitePool`
+//! - `postgres` — generates sync methods on `postgres::Client` / `Transaction`
+//!
+//! **Optional attributes:**
+//! - `test` — generates an auto-test that runs the query with arbitrary values
+//! - `test(with=[other_query])` — same as `test`, but runs prerequisite queries first
+//! - `named` (postgres only) — transforms `:name` placeholders to `$1`, `$2`, etc.
+//! - `conststr=<NAME>` — generates a `pub const NAME: &str` with the query string
+//!
+//! ## Parameters and return types
+//!
+//! **Parameters** use Rust-like syntax: `param_name: Type`. The generated methods
+//! accept references: `&param_name`. Supported types are anything that implements
+//! the backend's respective trait (`sqlx::Encode` for sqlx, `postgres::types::ToSql`
+//! for postgres).
+//!
+//! Common type shortcuts:
+//! - `str` is accepted as a parameter type (maps to `&str`)
+//! - `[u8]` is accepted as a parameter type (maps to `&[u8]`)
+//!
+//! **Return types** are optional and specified as `-> [(T1, T2, ...)]`. Each type
+//! corresponds to a column in the result set. If omitted, the query is treated as
+//! returning no data (DDL/DML).
+//!
+//! ## Auto-generated tests
+//!
+//! With the `test` attribute, fnsql generates a `#[test]` (or `#[tokio::test]` for
+//! sqlx_sqlite) that opens an in-memory database, runs prerequisite queries via
+//! `test(with=[...])`, and executes the query with arbitrary values. This validates
+//! that your query syntax is correct without writing any test code.
+//!
+//! To enable test compilation, add to your `[dev-dependencies]`:
 //!
 //! ```toml
-//! [dev-dependencies]
 //! arbitrary = { version = "1", features = ["derive"] }
 //! ```
-//!
-//! ## Limitations
-//!
-//!  * Though it <i>does</i> provide auto-generated tests for validating queries in `cargo test`,
-//!    it does not do any compile-time validation based on the SQL query string.
-//!  * It supports `sqlx_sqlite` and `postgres`.
+
 
 extern crate proc_macro;
 
@@ -812,30 +901,30 @@ impl Parse for TestAttr {
     }
 }
 
-/// The general structure of the input to the `fnsql` macro is the following:
+/// Declares type-safe SQL query wrappers.
+///
+/// Each declaration consists of:
+/// 1. Attributes in `#[...]`: backend + optional flags
+/// 2. A name and parameters: `<name>(param: Type, ...)`
+/// 3. Optional return type: `-> [(ColType1, ColType2, ...)]`
+/// 4. The SQL string in braces: `{ "..." }`
 ///
 /// ```ignore
 /// fnsql! {
-///     #[<sql-engine-type>, [OPTIONAL: test(with=[other-function-a, other-function-b...])], [OPTIONAL: conststr=<const-name>]]
-///     <function-name-a>(param1: type, param2: type...)
-///          [OPTIONAL: -> [(col a type, col b type, ...)]]
-///     {
-///         "SQL QUERY STRING"
+///     #[sqlx_sqlite, test]
+///     get_user(id: i32) -> [(String, i32)] {
+///         "SELECT name, age FROM users WHERE id = :id"
 ///     }
 ///
-///     ...
+///     #[postgres, named, test(with=[get_user])]
+///     update_user_name(id: i32, name: String) {
+///         "UPDATE users SET name = :name WHERE id = :id"
+///     }
 /// }
 /// ```
 ///
-/// **For examples see the root doc of the `fnsql` crate.**
-///
-/// - Return type is optional, and only meaningful for SQL operations that return row data.
-/// - sql-engine-type: supported backends: `sqlx_sqlite` and `postgres`.
-/// - Testing is optional - you have to specific the `test` attribute for it.
-/// - With `test(with=[...])`, you specify the quries that need execution for this
-///   query to work.
-/// - The `named` attribute allows using named arguments, e.g. ':name' with `postgres` in additon to the default position-based arguments of '$1' '$2', etc.
-/// - The `conststr=<name>` attribute generates a `pub const <name>: &str = "SQL";` at the top level.
+/// See the [crate-level documentation](index.html) for full details on generated
+/// methods, attributes, and type conventions.
 
 #[proc_macro]
 pub fn fnsql(input: TokenStream) -> TokenStream {
