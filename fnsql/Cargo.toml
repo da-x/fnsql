@@ -1,6 +1,6 @@
 [package]
 name = "fnsql"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 keywords = ["sql", "proc_macro", "procmacro"]
 license = "MIT/Apache-2.0"
@@ -19,7 +19,7 @@ with-postgres = ["fnsql-macro/with-postgres", "postgres", "tempdir"]
 prepare-cache = ["fnsql-macro/prepare-cache"]
 
 [dependencies]
-fnsql-macro = "0.3.0"
+fnsql-macro = "0.3.1"
 tempdir = { version = "0.3", optional = true }
 postgres = { version = "0.19", optional = true }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "uuid", "chrono"], optional = true }
