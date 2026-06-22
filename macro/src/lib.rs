@@ -607,6 +607,9 @@ impl Query {
             quote! { pub const #ident: &str = #query; }
         });
 
+        #[allow(non_snake_case)]
+        let TxTrait = self.prepend_name("Tx_");
+
         let test_code = self.test_code();
 
         quote! {
@@ -617,6 +620,14 @@ impl Query {
                 async fn #query_name(&self #params_declr) -> Result<Vec<(#outputs_declr)>, sqlx::Error>;
                 async fn #query_one_name(&self #params_declr) -> Result<(#outputs_declr), sqlx::Error>;
                 async fn #query_opt_name(&self #params_declr) -> Result<Option<(#outputs_declr)>, sqlx::Error>;
+            }
+
+            #[allow(non_camel_case_types)]
+            pub trait #TxTrait {
+                async fn #execute_name(&mut self #params_declr) -> Result<u64, sqlx::Error>;
+                async fn #query_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, sqlx::Error>;
+                async fn #query_one_name(&mut self #params_declr) -> Result<(#outputs_declr), sqlx::Error>;
+                async fn #query_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, sqlx::Error>;
             }
 
             pub fn #convert_row(row: sqlx::sqlite::SqliteRow) -> Result<(#outputs_declr), sqlx::Error> {
@@ -640,6 +651,29 @@ impl Query {
 
                 async fn #query_opt_name(&self #params_declr) -> Result<Option<(#outputs_declr)>, sqlx::Error> {
                     match sqlx::query(#query)#bind_chain.fetch_optional(self).await? {
+                        None => Ok(None),
+                        Some(row) => Ok(Some(#convert_row(row)?)),
+                    }
+                }
+            }
+
+            impl<'c> #TxTrait for sqlx::Transaction<'c, sqlx::Sqlite> {
+                async fn #execute_name(&mut self #params_declr) -> Result<u64, sqlx::Error> {
+                    sqlx::query(#query)#bind_chain.execute(&mut **self).await.map(|r| r.rows_affected())
+                }
+
+                async fn #query_name(&mut self #params_declr) -> Result<Vec<(#outputs_declr)>, sqlx::Error> {
+                    let rows = sqlx::query(#query)#bind_chain.fetch_all(&mut **self).await?;
+                    rows.into_iter().map(#convert_row).collect()
+                }
+
+                async fn #query_one_name(&mut self #params_declr) -> Result<(#outputs_declr), sqlx::Error> {
+                    let row = sqlx::query(#query)#bind_chain.fetch_one(&mut **self).await?;
+                    #convert_row(row)
+                }
+
+                async fn #query_opt_name(&mut self #params_declr) -> Result<Option<(#outputs_declr)>, sqlx::Error> {
+                    match sqlx::query(#query)#bind_chain.fetch_optional(&mut **self).await? {
                         None => Ok(None),
                         Some(row) => Ok(Some(#convert_row(row)?)),
                     }
