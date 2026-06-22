@@ -27,9 +27,3 @@ proc-macro2 = "1.0"
 lazy_static = "1.4"
 syn = "1.0"
 regex = "1.5"
-
-[dev-dependencies]
-fnsql = { version = "0.3.0", features = ["with-sqlx-sqlite"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "uuid", "chrono"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-arbitrary = { version = "1", features = ["derive"] }

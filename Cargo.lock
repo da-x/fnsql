@@ -402,15 +402,11 @@ dependencies = [
 name = "fnsql-macro"
 version = "0.3.0"
 dependencies = [
- "arbitrary",
- "fnsql",
  "lazy_static",
  "proc-macro2",
  "quote",
  "regex",
- "sqlx",
  "syn 1.0.109",
- "tokio",
 ]
 
 [[package]]
